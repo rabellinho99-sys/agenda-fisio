@@ -80,14 +80,13 @@ export function BookingFlow({ clinic }: { clinic: PublicClinic }) {
     });
     if (error) { setEnviando(false); return setErro(error.message.includes("indisponivel") ? "Esse horário acabou de ser ocupado. Escolha outro." : error.message); }
 
-    // Se o servico exige termo, gera o pedido e abre a assinatura na mesma tela
+    // Se o servico exige termo, gera o pedido (com o texto renderizado) e abre a assinatura na mesma tela
     if (svc?.requires_consent && svc.consent_template_id && apptId) {
-      const { data: token } = await supabase.rpc("create_public_consent_request", { p_appointment: apptId as string });
-      if (token) {
-        const { data: req } = await supabase.rpc("get_consent_request", { p_token: token as string });
-        setTermoToken(token as string);
-        setTermoBody((req?.body as string) ?? null);
-        setTermoTitulo((req?.template_name as string) ?? "Termo de consentimento");
+      const { data: termo } = await supabase.rpc("create_public_consent_request", { p_appointment: apptId as string });
+      if (termo?.token) {
+        setTermoToken(termo.token as string);
+        setTermoBody((termo.body as string) ?? null);
+        setTermoTitulo((termo.template_name as string) ?? "Termo de consentimento");
         setEnviando(false);
         setEtapa("termo");
         return;
