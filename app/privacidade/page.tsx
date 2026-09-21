@@ -5,7 +5,7 @@ export const metadata = { title: "Política de Privacidade - Agenda Fisio" };
 const TEXTO = `Esta Política explica como o Agenda Fisio trata dados pessoais. Aqui, Plataforma é o serviço; Assinante é o profissional ou clínica que contrata; Paciente é a pessoa atendida pelo Assinante.
 
 ## 1. Responsável
-O responsável pela Plataforma é [RAZAO SOCIAL OU NOME], [CNPJ OU CPF], com contato em [E-MAIL DE CONTATO]. O Encarregado de dados pode ser contatado em [E-MAIL DO ENCARREGADO].
+O responsável pela Plataforma é Rabello Academy, CNPJ 53.821.804/0001-18, com contato em rabellinho99@gmail.com. O Encarregado de dados pode ser contatado em rabellinho99@gmail.com.
 
 ## 2. Dois papéis diferentes
 2.1 Sobre os dados do Assinante (cadastro, cobrança, uso do sistema), a Plataforma atua como Controladora.
@@ -41,7 +41,7 @@ A Plataforma usa apenas os cookies necessários para autenticação e funcioname
 ## 11. Alterações
 Esta Política pode ser atualizada, com aviso pelos canais do sistema.
 
-Última atualização: [PREENCHER].`;
+Última atualização: 21 de setembro de 2026.`;
 
 export default function PrivacidadePage() {
   return (
