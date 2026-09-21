@@ -72,7 +72,21 @@ function EntrarForm() {
         {erro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
         {aviso && <p className="rounded-lg bg-white px-3 py-2 text-sm text-moss-deep">{aviso}</p>}
 
-        <button className="btn-primary w-full" onClick={enviar} disabled={carregando || !email || senha.length < 6 || (modo === "cadastro" && !nome)}>
+        {modo === "cadastro" && (
+          <p className="text-xs text-ink/60 leading-relaxed">
+            Ao criar sua conta, você concorda com os nossos{" "}
+            <Link href="/termos-de-uso" className="underline" target="_blank">
+              Termos de Uso
+            </Link>{" "}
+            e com a nossa{" "}
+            <Link href="/privacidade" className="underline" target="_blank">
+              Política de Privacidade
+            </Link>
+            .
+          </p>
+        )}
+
+        <button className="btn-primary w-full" onClick={enviar} disabled={carregando || !email || senha.length < 6 || (modo === "cadastro" && nome.length < 2)}>
           {carregando ? "Aguarde" : modo === "cadastro" ? "Criar conta" : "Entrar"}
         </button>
       </div>
