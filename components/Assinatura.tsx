@@ -118,9 +118,9 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
         )}
       </div>
 
-      {(acesso === "trial" || acesso === "blocked") && (
+      {(acesso === "trial" || acesso === "blocked" || acesso === "active") && (
         <>
-          <h2 className="h-title mt-10 text-xl">Escolha o plano</h2>
+          <h2 className="h-title mt-10 text-xl">{acesso === "active" ? "Alterar plano" : "Escolha o plano"}</h2>
 
           {/* Seletor de período */}
           <div className="mt-4 flex flex-wrap gap-2">
@@ -233,7 +233,9 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
                 {carregando
                   ? "Gerando cobrança..."
                   : efetivo
-                    ? `Assinar ${efetivo.name} · ${brl(efetivo.price_cents)}`
+                    ? acesso === "active"
+                      ? `Mudar para ${efetivo.name} · ${brl(efetivo.price_cents)}`
+                      : `Assinar ${efetivo.name} · ${brl(efetivo.price_cents)}`
                     : "Selecione um plano"}
               </button>
 
