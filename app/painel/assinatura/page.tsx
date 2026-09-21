@@ -8,7 +8,7 @@ export default async function AssinaturaPage() {
   const clinicId = member!.clinic_id as string;
   const [{ data: sub }, { data: plans }, { data: clinic }] = await Promise.all([
     supabase.rpc("my_subscription", { p_clinic: clinicId }),
-    supabase.from("plans").select("code, name, price_cents, max_professionals, features").eq("active", true).order("price_cents"),
+    supabase.from("plans").select("code, name, price_cents, max_professionals, features, billing_months, discount_pct, base_plan_code").eq("active", true).order("price_cents"),
     supabase.from("clinics").select("cnpj_cpf, email, phone").eq("id", clinicId).single(),
   ]);
   return (
