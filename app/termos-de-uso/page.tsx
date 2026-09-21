@@ -52,9 +52,9 @@ O software, a marca e a identidade visual do Agenda Fisio pertencem à Plataform
 10.5 Encerrado o contrato, o Controlador pode exportar os dados de Pacientes dentro do prazo informado, após o qual são eliminados, salvo obrigação legal de retenção.
 
 ## 11. Foro
-Fica eleito o foro da comarca de [CIDADE/UF], salvo regra de competência do consumidor mais favorável ao Assinante.
+Fica eleito o foro da comarca de Governador Valadares/MG, salvo regra de competência do consumidor mais favorável ao Assinante.
 
-Responsável: [RAZAO SOCIAL OU NOME], [CNPJ OU CPF]. Contato: [E-MAIL DE CONTATO]. Última atualização: [PREENCHER].`;
+Responsável: Rabello Academy, CNPJ 53.821.804/0001-18. Contato: rabellinho99@gmail.com. Última atualização: 21 de setembro de 2026.`;
 
 export default function TermosPage() {
   return (
