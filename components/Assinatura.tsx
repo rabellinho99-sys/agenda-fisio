@@ -8,12 +8,23 @@ type Sub = {
   status: string; access: string; trial_ends_at: string | null; current_period_end: string | null;
   payment_url: string | null; plan_code: string; plan_name: string; price_cents: number; has_gateway: boolean;
 } | null;
-type Plan = { code: string; name: string; price_cents: number; max_professionals: number | null; features: Record<string, boolean> };
+
+type Plan = {
+  code: string; name: string; price_cents: number;
+  max_professionals: number | null; features: Record<string, boolean>;
+  billing_months: number; discount_pct: number; base_plan_code: string | null;
+};
 
 const FEATS: Record<string, string> = {
   whatsapp: "Lembretes por WhatsApp", packages: "Pacotes de sessões", prontuario: "Prontuário e anamnese",
   pix: "Pix no agendamento", reports: "Relatórios", api: "API e multiunidade",
 };
+
+const PERIODOS = [
+  { months: 1,  label: "Mensal",          badge: null,   descricao: null },
+  { months: 6,  label: "Semestral · Pix", badge: "-5%",  descricao: "Cobrança única de 6 meses via Pix com 5% de desconto." },
+  { months: 12, label: "Anual",           badge: "-10%", descricao: "Cobrança única de 12 meses com 10% de desconto." },
+];
 
 function dias(iso: string | null) {
   if (!iso) return 0;
@@ -25,17 +36,34 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
   clinic: { cnpj_cpf: string | null; email: string | null; phone: string | null }; userEmail: string;
 }) {
   const supabase = createClient();
-  const [plano, setPlano] = useState(sub?.plan_code ?? "clinica");
+
+  const basePlans = plans.filter((p) => p.billing_months === 1);
+
+  const [basePlano, setBasePlano] = useState<string>(() => {
+    const cur = sub?.plan_code ?? "solo";
+    const found = plans.find((p) => p.code === cur);
+    return found?.base_plan_code ?? cur;
+  });
+  const [periodo, setPeriodo] = useState(1);
   const [doc, setDoc] = useState(clinic.cnpj_cpf ?? "");
   const [email, setEmail] = useState(clinic.email ?? userEmail);
   const [fone, setFone] = useState(clinic.phone ?? "");
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
 
+  function planEfetivo(): Plan | null {
+    if (periodo === 1) return plans.find((p) => p.code === basePlano) ?? null;
+    return plans.find((p) => p.base_plan_code === basePlano && p.billing_months === periodo) ?? null;
+  }
+
+  const efetivo = planEfetivo();
+  const periodoInfo = PERIODOS.find((p) => p.months === periodo)!;
+
   async function assinar() {
+    if (!efetivo) return;
     setErro(null); setCarregando(true);
     const { data, error } = await supabase.functions.invoke("asaas-checkout", {
-      body: { clinic_id: clinicId, plan_code: plano, cpf_cnpj: doc, email, phone: fone },
+      body: { clinic_id: clinicId, plan_code: efetivo.code, cpf_cnpj: doc, email, phone: fone },
     });
     setCarregando(false);
     if (error || data?.error) {
@@ -53,6 +81,7 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
     <div className="max-w-3xl">
       <h1 className="h-title text-3xl">Assinatura</h1>
 
+      {/* Card de status atual */}
       <div className="mt-6 rounded-xl bg-white p-5">
         {acesso === "trial" && (
           <>
@@ -65,7 +94,9 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
           <>
             <p className="text-sm text-ink/60">Plano {sub?.plan_name}</p>
             <p className="h-display mt-1 text-4xl">Ativo</p>
-            <p className="mt-2 text-ink/70">Próxima renovação em {sub?.current_period_end ? new Date(sub.current_period_end).toLocaleDateString("pt-BR") : "breve"}. Cobrança mensal de {brl(sub?.price_cents ?? 0)}.</p>
+            <p className="mt-2 text-ink/70">
+              Próxima renovação em {sub?.current_period_end ? new Date(sub.current_period_end).toLocaleDateString("pt-BR") : "breve"}.
+            </p>
             {sub?.payment_url && <a className="btn-ghost mt-4" href={sub.payment_url} target="_blank">Ver próxima fatura</a>}
           </>
         )}
@@ -89,34 +120,126 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
 
       {(acesso === "trial" || acesso === "blocked") && (
         <>
-          <h2 className="h-title mt-10 text-xl">Planos</h2>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            {plans.map((p) => (
-              <button key={p.code} onClick={() => setPlano(p.code)}
-                className={`rounded-xl border p-4 text-left ${plano === p.code ? "border-moss bg-white" : "border-mist bg-white/60 hover:border-moss/50"}`}>
-                <p className="font-bold">{p.name}</p>
-                <p className="mt-1 text-2xl font-extrabold tracking-tight">{brl(p.price_cents)}<span className="text-sm font-normal text-ink/60">/mês</span></p>
-                <p className="mt-1 text-xs text-ink/60">{p.max_professionals ? `até ${p.max_professionals} profissional${p.max_professionals > 1 ? "is" : ""}` : "profissionais ilimitados"}</p>
-                <ul className="mt-3 space-y-1 text-sm">
-                  {Object.entries(FEATS).map(([k, label]) => (
-                    <li key={k} className={p.features?.[k] ? "" : "text-ink/35 line-through"}>{label}</li>
-                  ))}
-                </ul>
-              </button>
-            ))}
+          <h2 className="h-title mt-10 text-xl">Escolha o plano</h2>
+
+          {/* Seletor de período */}
+          <div className="mt-4 flex flex-wrap gap-2">
+            {PERIODOS.map((per) => {
+              const ativo = periodo === per.months;
+              return (
+                <button
+                  key={per.months}
+                  onClick={() => setPeriodo(per.months)}
+                  className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+                    ativo ? "bg-moss text-white" : "bg-white text-ink hover:bg-mist"
+                  }`}
+                >
+                  {per.label}
+                  {per.badge && (
+                    <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${
+                      ativo ? "bg-white/25 text-white" : "bg-amber text-ink"
+                    }`}>
+                      {per.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
+          {/* Cards de planos */}
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {basePlans.map((p) => {
+              const variant = periodo === 1
+                ? p
+                : plans.find((v) => v.base_plan_code === p.code && v.billing_months === periodo) ?? p;
+              const precoMensal = Math.round(variant.price_cents / variant.billing_months);
+              const sel = basePlano === p.code;
+
+              return (
+                <button
+                  key={p.code}
+                  onClick={() => setBasePlano(p.code)}
+                  className={`rounded-xl border p-4 text-left transition-colors ${
+                    sel ? "border-moss bg-white" : "border-mist bg-white/60 hover:border-moss/50"
+                  }`}
+                >
+                  <p className="font-bold">{p.name}</p>
+                  <p className="mt-1 text-2xl font-extrabold tracking-tight">
+                    {brl(precoMensal)}
+                    <span className="text-sm font-normal text-ink/60">/mês</span>
+                  </p>
+                  {periodo > 1 && (
+                    <p className="mt-0.5 text-xs font-semibold text-moss">
+                      {brl(variant.price_cents)} cobrado {periodo === 6 ? "em 6 meses" : "no ano"}
+                    </p>
+                  )}
+                  <p className="mt-1 text-xs text-ink/60">
+                    {p.max_professionals
+                      ? `até ${p.max_professionals} profissional${p.max_professionals > 1 ? "is" : ""}`
+                      : "profissionais ilimitados"}
+                  </p>
+                  <ul className="mt-3 space-y-1 text-sm">
+                    {Object.entries(FEATS).map(([k, label]) => (
+                      <li key={k} className={p.features?.[k] ? "text-ink/85" : "text-ink/30 line-through"}>
+                        {label}
+                      </li>
+                    ))}
+                  </ul>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Formulário de dados e botão */}
           {isOwner ? (
             <div className="mt-6 max-w-md space-y-4 rounded-xl bg-white p-5">
               <p className="font-bold">Dados de cobrança</p>
-              <div><label className="label">CPF ou CNPJ</label><input className="field" value={doc} onChange={(e) => setDoc(e.target.value)} placeholder="000.000.000-00" /></div>
-              <div><label className="label">E-mail para faturas</label><input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-              <div><label className="label">Celular</label><input className="field" value={fone} onChange={(e) => setFone(e.target.value)} placeholder="33 99999 0000" /></div>
+              <div>
+                <label className="label">CPF ou CNPJ</label>
+                <input className="field" value={doc} onChange={(e) => setDoc(e.target.value)} placeholder="000.000.000-00" />
+              </div>
+              <div>
+                <label className="label">E-mail para faturas</label>
+                <input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Celular</label>
+                <input className="field" value={fone} onChange={(e) => setFone(e.target.value)} placeholder="33 99999 0000" />
+              </div>
+
+              {/* Resumo do pedido */}
+              {efetivo && (
+                <div className="rounded-lg bg-mist/50 px-4 py-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-ink/70">{efetivo.name}</span>
+                    <span className="font-bold">{brl(efetivo.price_cents)}</span>
+                  </div>
+                  {periodo > 1 && (
+                    <p className="mt-1 text-xs text-moss font-semibold">
+                      {efetivo.discount_pct}% de desconto por pagar {periodo === 6 ? "6 meses" : "1 ano"} à vista
+                    </p>
+                  )}
+                </div>
+              )}
+
               {erro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
-              <button className="btn-primary w-full" onClick={assinar} disabled={carregando || doc.replace(/\D/g, "").length < 11}>
-                {carregando ? "Gerando cobrança" : `Assinar plano ${plans.find((p) => p.code === plano)?.name ?? ""}`}
+
+              <button
+                className="btn-primary w-full"
+                onClick={assinar}
+                disabled={carregando || doc.replace(/\D/g, "").length < 11 || !efetivo}
+              >
+                {carregando
+                  ? "Gerando cobrança..."
+                  : efetivo
+                    ? `Assinar ${efetivo.name} · ${brl(efetivo.price_cents)}`
+                    : "Selecione um plano"}
               </button>
-              <p className="text-xs text-ink/60">Você será levado à fatura do Asaas para pagar por Pix, boleto ou cartão. A renovação é mensal e pode ser cancelada a qualquer momento.</p>
+
+              <p className="text-xs text-ink/60">
+                {periodoInfo.descricao ?? "Você será levado à fatura do Asaas para pagar por Pix, boleto ou cartão. A renovação é mensal e pode ser cancelada a qualquer momento."}
+              </p>
             </div>
           ) : (
             <p className="mt-6 text-sm text-ink/60">Apenas o dono da clínica pode assinar.</p>
