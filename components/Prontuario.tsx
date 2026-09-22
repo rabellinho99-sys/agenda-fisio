@@ -10,6 +10,7 @@ import { FormAnamnese } from "@/components/FormAnamnese";
 import { agrupar, faltando, fmtResposta, type Answers, type Field } from "@/lib/anamnese";
 import { Consentimentos, type ConsentDoc, type ConsentReq, type ConsentTpl } from "@/components/Consentimentos";
 import { PacotesPaciente, type Pkg, type PatientPkg } from "@/components/PacotesPaciente";
+import { ImagensDiagnosticas, type PatientImage } from "@/components/ImagensDiagnosticas";
 
 type Patient = { id: string; clinic_id: string; full_name: string; phone: string; birth_date: string | null; cpf: string | null; notes: string | null; tags: string[] | null };
 type Proc = { name: string; site: string; volume_ml: string; lot: string };
@@ -28,11 +29,12 @@ type Req = { id: string; token: string; template_id: string; expires_at: string;
 
 const vazio = { appointment_id: "", subjective: "", objective: "", assessment: "", plan: "", pain_before: "", pain_after: "", procedures: [] as Proc[] };
 
-export function Prontuario({ patient, notes: inicial, appts, professionals, meuProfissional, apptInicial, tz, templates, anamneses: anInicial, requests: reqInicial, consentTemplates, consents, consentRequests, catalogo, pacotes, servicos }: {
+export function Prontuario({ patient, notes: inicial, appts, professionals, meuProfissional, apptInicial, tz, templates, anamneses: anInicial, requests: reqInicial, consentTemplates, consents, consentRequests, catalogo, pacotes, servicos, imagens }: {
   patient: Patient; notes: Note[]; appts: Appt[]; professionals: Prof[]; meuProfissional: string | null; apptInicial: string | null; tz: string;
   templates: Tpl[]; anamneses: Resp[]; requests: Req[];
   consentTemplates: ConsentTpl[]; consents: ConsentDoc[]; consentRequests: ConsentReq[];
   catalogo: Pkg[]; pacotes: PatientPkg[]; servicos: { id: string; name: string }[];
+  imagens: PatientImage[];
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -251,6 +253,11 @@ export function Prontuario({ patient, notes: inicial, appts, professionals, meuP
           patientPhone={patient.phone} patientCpf={patient.cpf}
           professionalName={professionals.find((p) => p.id === prof)?.display_name ?? null}
           templates={consentTemplates} docs={consents} requests={consentRequests} tz={tz}
+        />
+
+        <ImagensDiagnosticas
+          clinicId={patient.clinic_id} patientId={patient.id}
+          imagens={imagens} tz={tz}
         />
 
         <h2 className="h-title mt-8 text-xl">Evoluções</h2>
