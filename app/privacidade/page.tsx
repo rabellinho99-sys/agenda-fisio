@@ -5,7 +5,7 @@ export const metadata = { title: "Política de Privacidade - Agenda Fisio" };
 const TEXTO = `Esta Política explica como o Agenda Fisio trata dados pessoais. Aqui, Plataforma é o serviço; Assinante é o profissional ou clínica que contrata; Paciente é a pessoa atendida pelo Assinante.
 
 ## 1. Responsável
-O responsável pela Plataforma é Rabello Academy, CNPJ 53.821.804.0001-18, com contato em pedrorabello_99@hotmail.com. O Encarregado de dados (DPO) pode ser contatado em [E-MAIL DO ENCARREGADO].
+O responsável pela Plataforma é Rabello Academy, CNPJ 53.821.804/0001-18, com contato em pedrorabello_99@hotmail.com. O Encarregado de dados (DPO) pode ser contatado em pedrorabello_99@hotmail.com.
 
 ## 2. Dois papéis diferentes
 2.1 Sobre os dados do Assinante (cadastro, cobrança, uso do sistema), a Plataforma atua como Controladora.
