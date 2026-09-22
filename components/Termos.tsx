@@ -7,16 +7,61 @@ import { Markdown } from "@/components/Assinar";
 type Tpl = { id: string; name: string; body_markdown: string; version: number };
 type Svc = { id: string; name: string; consent_template_id: string | null };
 
-const MODELO_VAZIO = `## Termo de Consentimento Livre e Esclarecido
-### Nome do procedimento
+const MODELO_VAZIO = `## Termo de Consentimento Livre e Esclarecido (TCLE)
 
-Eu, {{paciente}}, CPF {{cpf}}, declaro que fui informado por {{profissional}}, na {{clinica}}, sobre o procedimento proposto.
+**Paciente:** {{paciente}} | **CPF:** {{cpf}}
+**Profissional:** {{profissional}} | **Estabelecimento:** {{clinica}}
+**Data:** {{data}}
 
-**Do procedimento.** Descreva aqui o que será feito.
+---
 
-**Dos riscos.** Liste os riscos e reações possíveis.
+### 1. Do procedimento
 
-**Da autonomia.** Tive minhas dúvidas respondidas e posso revogar este consentimento a qualquer momento.
+Eu, {{paciente}}, declaro que fui informado(a) pelo(a) profissional {{profissional}} sobre o procedimento proposto _(descreva aqui o procedimento)_, seus objetivos, técnicas empregadas, benefícios esperados e alternativas terapêuticas disponíveis, e que tive tempo e oportunidade de esclarecer todas as minhas dúvidas antes de assinar.
+
+### 2. Dos riscos e efeitos esperados
+
+Estou ciente de que todo procedimento fisioterapêutico pode envolver riscos, tais como dor local transitória, hematomas, reação inflamatória ou ausência do resultado esperado. Fui orientado(a) sobre os riscos específicos do procedimento acima descrito e concordo com a realização.
+
+### 3. Das faltas e cancelamentos
+
+3.1 O cancelamento ou remarcação de sessão deve ser comunicado ao profissional com antecedência mínima de **24 horas** por telefone ou mensagem.
+
+3.2 A falta sem comunicação prévia no prazo de 24 horas não gera direito a reposição ou reembolso da sessão, salvo comprovação de caso fortuito ou força maior (art. 393 do Código Civil Brasileiro).
+
+3.3 Em caso de atraso do paciente, a sessão poderá ser encerrada no horário originalmente previsto, sem reposição do tempo perdido, a fim de preservar os demais agendamentos.
+
+3.4 Três faltas consecutivas sem justificativa poderão ser interpretadas como abandono de tratamento, conforme cláusula 4 abaixo.
+
+### 4. Do abandono de tratamento
+
+4.1 O paciente tem o direito de interromper o tratamento a qualquer momento, no exercício de sua autonomia, nos termos do art. 5.º, III, da Constituição Federal e da Resolução COFFITO n.º 10/1978.
+
+4.2 A interrupção não justificada do tratamento isenta o profissional de responsabilidade por resultados incompletos ou por agravamento de condição preexistente, uma vez que o plano terapêutico não pôde ser integralmente executado.
+
+4.3 Em caso de abandono, eventuais créditos de sessões em pacote poderão ser utilizados no prazo de **90 dias** a contar da última sessão realizada, após o qual os créditos caducam sem direito a reembolso.
+
+### 5. Do reembolso
+
+5.1 Contratações realizadas à distância (por aplicativo, link digital ou telefone) garantem ao paciente o direito de arrependimento no prazo de **7 dias corridos** a contar da data da contratação, com reembolso integral dos valores pagos, conforme art. 49 do Código de Defesa do Consumidor (Lei n.º 8.078/1990).
+
+5.2 Sessões já realizadas não são passíveis de reembolso, salvo comprovação de erro ou negligência do profissional devidamente apurada.
+
+5.3 Pacotes de sessões pré-pagos são reembolsáveis de forma proporcional ao número de sessões ainda não realizadas, descontando-se eventuais descontos concedidos em razão da contratação do pacote (art. 51 do CDC veda cláusulas que impossibilitem o reembolso proporcional).
+
+5.4 O reembolso, quando devido, será realizado em até **30 dias corridos** após solicitação formal do paciente.
+
+### 6. Da autonomia e revogação do consentimento
+
+O paciente poderá revogar este consentimento a qualquer momento, antes ou durante o tratamento, sem qualquer penalidade, bastando comunicar ao profissional. A revogação não retroage a sessões já realizadas.
+
+### 7. Do sigilo e proteção de dados (LGPD)
+
+As informações coletadas neste termo são tratadas com estrito sigilo profissional e utilizadas exclusivamente para fins de registro clínico, conforme a Lei Geral de Proteção de Dados Pessoais (Lei n.º 13.709/2018) e o Código de Ética do Fisioterapeuta (Resolução COFFITO n.º 424/2013).
+
+---
+
+**Declaro** que li e compreendi todas as cláusulas deste termo, que tive minhas dúvidas esclarecidas, e que consinto, de forma livre e esclarecida, com a realização do procedimento proposto.
 
 Assinado em {{data}}.`;
 
