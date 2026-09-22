@@ -54,7 +54,7 @@ O software, a marca e a identidade visual do Agenda Fisio pertencem à Plataform
 ## 11. Foro
 Fica eleito o foro da comarca de Governador Valadares/MG, salvo regra de competência do consumidor mais favorável ao Assinante.
 
-Responsável: Rabello Academy, CNPJ 53.821.804/0001-18. Contato: pedrorabello_99@hotmail.com. Última atualização: setembro de 2026.`;
+Responsável: Rabello Academy, CNPJ 53.821.804/0001-18. Contato: rabelloacademy@gmail.com. Última atualização: setembro de 2026.`;
 
 export default function TermosPage() {
   return (
