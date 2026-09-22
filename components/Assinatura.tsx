@@ -50,6 +50,9 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
   const [fone, setFone] = useState(clinic.phone ?? "");
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const [confirmCancelar, setConfirmCancelar] = useState(false);
+  const [cancelado, setCancelado] = useState(false);
 
   function planEfetivo(): Plan | null {
     if (periodo === 1) return plans.find((p) => p.code === basePlano) ?? null;
@@ -58,6 +61,26 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
 
   const efetivo = planEfetivo();
   const periodoInfo = PERIODOS.find((p) => p.months === periodo)!;
+
+  async function cancelarAssinatura() {
+    setCancelando(true);
+    setErro(null);
+    const { data: { session } } = await supabase.auth.getSession();
+    const resp = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/asaas-cancel`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session?.access_token}`,
+      },
+    });
+    setCancelando(false);
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return setErro((body as { error?: string }).error ?? "Erro ao cancelar. Tente novamente.");
+    }
+    setConfirmCancelar(false);
+    setCancelado(true);
+  }
 
   async function assinar() {
     if (!efetivo) return;
@@ -117,6 +140,52 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
           </>
         )}
       </div>
+
+      {/* Cancelamento */}
+      {isOwner && (acesso === "active" || acesso === "past_due") && sub?.has_gateway && !cancelado && (
+        <div className="mt-4">
+          {!confirmCancelar ? (
+            <button
+              className="text-sm text-ink/50 underline underline-offset-4 hover:text-danger"
+              onClick={() => { setConfirmCancelar(true); setErro(null); }}
+            >
+              Cancelar assinatura
+            </button>
+          ) : (
+            <div className="rounded-xl border border-danger/30 bg-blush/30 p-5 space-y-3">
+              <p className="font-bold text-danger">Confirmar cancelamento</p>
+              <p className="text-sm text-ink/80">
+                Ao cancelar, o acesso ao painel continua até o fim do período já pago.
+                Após isso, o painel é bloqueado e o link público dos seus pacientes sai do ar.
+                Seus dados ficam guardados por 90 dias.
+              </p>
+              <p className="text-sm text-ink/70">Essa ação não pode ser desfeita por aqui. Para reativar, escolha um novo plano.</p>
+              {erro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
+              <div className="flex gap-2">
+                <button
+                  className="btn-danger"
+                  onClick={cancelarAssinatura}
+                  disabled={cancelando}
+                >
+                  {cancelando ? "Cancelando..." : "Confirmar cancelamento"}
+                </button>
+                <button className="btn-ghost" onClick={() => { setConfirmCancelar(false); setErro(null); }}>
+                  Voltar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {cancelado && (
+        <div className="mt-4 rounded-xl bg-white p-5">
+          <p className="font-bold">Assinatura cancelada</p>
+          <p className="mt-1 text-sm text-ink/70">
+            Seu acesso continua até o fim do período pago. Quando quiser retornar, é só escolher um plano abaixo.
+          </p>
+        </div>
+      )}
 
       {(acesso === "trial" || acesso === "blocked" || acesso === "active") && (
         <>
