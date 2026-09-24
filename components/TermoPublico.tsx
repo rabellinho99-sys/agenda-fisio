@@ -83,7 +83,7 @@ function gerarPDF(
 
   <div class="rodape">
     Este documento possui validade jurídica. A assinatura digital foi registrada com data, hora e identificação do dispositivo.
-    Emitido por Agenda Fisio &mdash; agenda-fisio-six.vercel.app
+    Emitido por Agenda Fisio Pro &mdash; agendafisiopro.com.br
   </div>
 
   <script>window.onload = () => window.print();<\/script>
