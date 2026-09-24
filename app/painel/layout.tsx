@@ -28,7 +28,7 @@ export default async function PainelLayout({ children }: { children: React.React
     <div className="mx-auto max-w-6xl px-4 md:px-6">
       <header className="flex flex-wrap items-center justify-between gap-3 py-4">
         <div>
-          <p className="text-xs text-ink/60">Agenda Fisio</p>
+          <p className="text-xs text-ink/60">Agenda Fisio Pro</p>
           <p className="text-lg font-extrabold tracking-tight">{clinic.name}</p>
         </div>
         <nav className="flex flex-wrap items-center gap-1 rounded-lg bg-white p-1">
