@@ -245,7 +245,7 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
                   )}
                   <p className="mt-1 text-xs text-ink/60">
                     {p.max_professionals
-                      ? `até ${p.max_professionals} profissional${p.max_professionals > 1 ? "is" : ""}`
+                      ? `até ${p.max_professionals} ${p.max_professionals > 1 ? "profissionais" : "profissional"}`
                       : "profissionais ilimitados"}
                   </p>
                   <ul className="mt-3 space-y-1 text-sm">
