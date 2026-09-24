@@ -1,11 +1,63 @@
 import Link from "next/link";
+import { createClient } from "@supabase/supabase-js";
+import { brl } from "@/lib/format";
 
-export default function Home() {
+// Preços lidos da tabela plans. Atualiza a cada 5 minutos,
+// então mudar um preço no banco reflete no site sem novo deploy.
+export const revalidate = 300;
+
+type Plan = {
+  code: string;
+  name: string;
+  price_cents: number;
+  max_professionals: number | null;
+  features: Record<string, boolean> | null;
+  billing_months: number;
+  discount_pct: number;
+  base_plan_code: string | null;
+};
+
+const FEATS: Record<string, string> = {
+  whatsapp: "Lembretes por WhatsApp",
+  packages: "Pacotes de sessões",
+  prontuario: "Prontuário e anamnese",
+  pix: "Pix no agendamento",
+  reports: "Relatórios",
+  api: "API e multiunidade",
+};
+
+async function carregarPlanos(): Promise<Plan[]> {
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } }
+    );
+    const { data } = await supabase
+      .from("plans")
+      .select("code, name, price_cents, max_professionals, features, billing_months, discount_pct, base_plan_code")
+      .eq("active", true)
+      .order("price_cents");
+    return (data ?? []) as Plan[];
+  } catch {
+    return [];
+  }
+}
+
+export default async function Home() {
+  const planos = await carregarPlanos();
+  const base = planos.filter((p) => p.billing_months === 1);
+  const variante = (codigo: string, meses: number) =>
+    planos.find((p) => p.base_plan_code === codigo && p.billing_months === meses);
+
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col px-6">
       <header className="flex items-center justify-between py-6">
         <span className="text-lg font-extrabold tracking-tight">Agenda Fisio Pro</span>
-        <Link href="/entrar" className="btn-ghost">Entrar</Link>
+        <nav className="flex items-center gap-2">
+          {base.length > 0 && <a href="#planos" className="btn-ghost">Planos</a>}
+          <Link href="/entrar" className="btn-ghost">Entrar</Link>
+        </nav>
       </header>
 
       <section className="grid flex-1 items-center gap-12 py-12 md:grid-cols-[1.2fr_1fr]">
@@ -19,7 +71,9 @@ export default function Home() {
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/entrar?modo=cadastro" className="btn-primary">Criar minha agenda grátis</Link>
-            <Link href="/entrar" className="btn-ghost">Já tenho conta</Link>
+            {base.length > 0
+              ? <a href="#planos" className="btn-ghost">Ver planos e preços</a>
+              : <Link href="/entrar" className="btn-ghost">Já tenho conta</Link>}
           </div>
           <p className="mt-4 text-sm text-ink/60">30 dias grátis. Sem cartão.</p>
         </div>
@@ -43,6 +97,81 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {base.length > 0 && (
+        <section id="planos" className="scroll-mt-6 py-16">
+          <h2 className="h-title text-3xl md:text-4xl">Planos e preços</h2>
+          <p className="mt-3 max-w-2xl text-ink/70">
+            Comece com 30 dias grátis, sem cartão. Depois escolha o plano e a forma de pagamento.
+            No semestral e no anual você paga de uma vez e ganha desconto.
+          </p>
+
+          <div className="mt-8 grid gap-4 md:grid-cols-3">
+            {base.map((p) => {
+              const sem = variante(p.code, 6);
+              const anual = variante(p.code, 12);
+              return (
+                <div key={p.code} className="flex flex-col rounded-2xl border border-mist bg-white p-6">
+                  <p className="text-lg font-bold">{p.name}</p>
+                  <p className="mt-1 text-sm text-ink/60">
+                    {p.max_professionals
+                      ? `Até ${p.max_professionals} profissional${p.max_professionals > 1 ? "is" : ""}`
+                      : "Profissionais ilimitados"}
+                  </p>
+
+                  <p className="mt-5 text-4xl font-extrabold tracking-tight">
+                    {brl(p.price_cents)}
+                    <span className="text-base font-normal text-ink/60">/mês</span>
+                  </p>
+                  <p className="text-xs text-ink/60">Plano mensal, cancele quando quiser</p>
+
+                  <div className="mt-5 space-y-2">
+                    {sem && (
+                      <div className="rounded-lg bg-mist/50 px-3 py-2 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold">Semestral</span>
+                          <span className="font-bold">{brl(sem.price_cents)}</span>
+                        </div>
+                        <p className="text-xs text-ink/60">
+                          Equivale a {brl(Math.round(sem.price_cents / 6))}/mês · {sem.discount_pct}% de desconto no Pix
+                        </p>
+                      </div>
+                    )}
+                    {anual && (
+                      <div className="rounded-lg bg-mist/50 px-3 py-2 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold">Anual</span>
+                          <span className="font-bold">{brl(anual.price_cents)}</span>
+                        </div>
+                        <p className="text-xs text-ink/60">
+                          Equivale a {brl(Math.round(anual.price_cents / 12))}/mês · {anual.discount_pct}% de desconto
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <ul className="mt-5 flex-1 space-y-1.5 text-sm">
+                    <li className="text-ink/85">Agenda online e link público</li>
+                    {Object.entries(FEATS).map(([k, label]) => (
+                      <li key={k} className={p.features?.[k] ? "text-ink/85" : "text-ink/30 line-through"}>
+                        {label}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <Link href="/entrar?modo=cadastro" className="btn-primary mt-6 w-full text-center">
+                    Testar 30 dias grátis
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="mt-6 text-xs text-ink/60">
+            Pagamento por Pix, boleto ou cartão. O plano mensal renova todo mês e pode ser cancelado a qualquer momento pelo painel.
+          </p>
+        </section>
+      )}
     </main>
   );
 }
