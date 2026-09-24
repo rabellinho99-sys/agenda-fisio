@@ -1,8 +1,8 @@
 import { Markdown } from "@/components/Assinar";
 
-export const metadata = { title: "Política de Privacidade - Agenda Fisio" };
+export const metadata = { title: "Política de Privacidade - Agenda Fisio Pro" };
 
-const TEXTO = `Esta Política explica como o Agenda Fisio trata dados pessoais. Aqui, Plataforma é o serviço; Assinante é o profissional ou clínica que contrata; Paciente é a pessoa atendida pelo Assinante.
+const TEXTO = `Esta Política explica como o Agenda Fisio Pro trata dados pessoais. Aqui, Plataforma é o serviço; Assinante é o profissional ou clínica que contrata; Paciente é a pessoa atendida pelo Assinante.
 
 ## 1. Responsável
 O responsável pela Plataforma é Rabello Academy, CNPJ 53.821.804/0001-18, com contato em rabelloacademy@gmail.com. O Encarregado de dados (DPO) pode ser contatado em rabelloacademy@gmail.com.
@@ -46,7 +46,7 @@ Esta Política pode ser atualizada, com aviso pelos canais do sistema. O uso con
 export default function PrivacidadePage() {
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
-      <p className="text-sm text-ink/60">Agenda Fisio</p>
+      <p className="text-sm text-ink/60">Agenda Fisio Pro</p>
       <h1 className="mt-1 text-4xl font-bold">Política de Privacidade</h1>
       <article className="mt-6 rounded-2xl bg-white p-6">
         <Markdown texto={TEXTO} />
