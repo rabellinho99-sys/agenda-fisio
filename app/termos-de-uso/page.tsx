@@ -1,11 +1,11 @@
 import { Markdown } from "@/components/Assinar";
 
-export const metadata = { title: "Termos de Uso - Agenda Fisio" };
+export const metadata = { title: "Termos de Uso - Agenda Fisio Pro" };
 
-const TEXTO = `Ao criar conta, contratar um plano ou usar o Agenda Fisio, você declara ter lido e aceitado estes Termos e a Política de Privacidade. Se não concordar, não use o serviço. Aqui, Plataforma ou Agenda Fisio é o serviço; Assinante é o profissional ou clínica que contrata; Paciente é a pessoa atendida pelo Assinante.
+const TEXTO = `Ao criar conta, contratar um plano ou usar o Agenda Fisio Pro, você declara ter lido e aceitado estes Termos e a Política de Privacidade. Se não concordar, não use o serviço. Aqui, Plataforma ou Agenda Fisio Pro é o serviço; Assinante é o profissional ou clínica que contrata; Paciente é a pessoa atendida pelo Assinante.
 
 ## 1. Objeto
-O Agenda Fisio é um sistema de agendamento online, prontuário eletrônico, gestão de pacientes, termos de consentimento e notificações, oferecido como serviço por assinatura ao Assinante.
+O Agenda Fisio Pro é um sistema de agendamento online, prontuário eletrônico, gestão de pacientes, termos de consentimento e notificações, oferecido como serviço por assinatura ao Assinante.
 
 ## 2. Cadastro e conta
 2.1 O Assinante fornece dados verdadeiros e mantém suas credenciais em sigilo.
@@ -37,7 +37,7 @@ O Agenda Fisio é um sistema de agendamento online, prontuário eletrônico, ges
 É vedado tentar burlar a segurança, acessar dados de outras contas, usar a Plataforma para fim ilícito, sobrecarregar a infraestrutura de forma abusiva, ou revender o acesso sem autorização.
 
 ## 8. Propriedade intelectual
-O software, a marca e a identidade visual do Agenda Fisio pertencem à Plataforma. Os dados clínicos e cadastrais inseridos pelo Assinante pertencem ao Assinante e a seus Pacientes.
+O software, a marca e a identidade visual do Agenda Fisio Pro pertencem à Plataforma. Os dados clínicos e cadastrais inseridos pelo Assinante pertencem ao Assinante e a seus Pacientes.
 
 ## 9. Vigência e alterações
 9.1 Estes Termos vigoram enquanto durar a conta.
@@ -59,7 +59,7 @@ Responsável: Rabello Academy, CNPJ 53.821.804/0001-18. Contato: rabelloacademy@
 export default function TermosPage() {
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
-      <p className="text-sm text-ink/60">Agenda Fisio</p>
+      <p className="text-sm text-ink/60">Agenda Fisio Pro</p>
       <h1 className="mt-1 text-4xl font-bold">Termos de Uso</h1>
       <article className="mt-6 rounded-2xl bg-white p-6">
         <Markdown texto={TEXTO} />
