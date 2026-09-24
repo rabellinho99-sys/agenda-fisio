@@ -115,7 +115,7 @@ export default async function Home() {
                   <p className="text-lg font-bold">{p.name}</p>
                   <p className="mt-1 text-sm text-ink/60">
                     {p.max_professionals
-                      ? `Até ${p.max_professionals} profissional${p.max_professionals > 1 ? "is" : ""}`
+                      ? `Até ${p.max_professionals} ${p.max_professionals > 1 ? "profissionais" : "profissional"}`
                       : "Profissionais ilimitados"}
                   </p>
 
