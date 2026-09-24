@@ -14,7 +14,9 @@ function EntrarForm() {
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  const [erro, setErro] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(
+    params.get("erro") === "link" ? "Este link expirou ou já foi usado. Peça um novo em Esqueci minha senha." : null
+  );
   const [aviso, setAviso] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
 
@@ -48,7 +50,7 @@ function EntrarForm() {
 
   return (
     <div className="w-full max-w-sm">
-      <Link href="/" className="text-lg font-extrabold tracking-tight">Agenda Fisio</Link>
+      <Link href="/" className="text-lg font-extrabold tracking-tight">Agenda Fisio Pro</Link>
       <h1 className="h-title mt-8 text-3xl">
         {modo === "cadastro" ? "Crie sua conta" : "Entrar na agenda"}
       </h1>
@@ -68,6 +70,21 @@ function EntrarForm() {
           <label className="label" htmlFor="senha">Senha</label>
           <input id="senha" type="password" className="field" value={senha} onChange={(e) => setSenha(e.target.value)} minLength={6} />
         </div>
+
+        {modo === "login" && (
+
+          <div className="text-right">
+
+            <Link href="/esqueci-senha" className="text-sm text-ink/70 underline underline-offset-4">
+
+              Esqueci minha senha
+
+            </Link>
+
+          </div>
+
+        )}
+
 
         {erro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
         {aviso && <p className="rounded-lg bg-white px-3 py-2 text-sm text-moss-deep">{aviso}</p>}
