@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Agenda Fisio",
+  title: "Agenda Fisio Pro",
   description: "Agendamento online feito para fisioterapeutas.",
 };
 
