@@ -39,7 +39,7 @@ export default function EsqueciSenhaPage() {
               Se existir uma conta com o e-mail <strong>{email.trim()}</strong>, você vai receber um link para criar uma nova senha. Confira também a caixa de spam.
             </p>
             <p className="text-xs text-ink/60 leading-relaxed">
-              Abra o link no mesmo navegador em que fez o pedido. O link vale por tempo limitado.
+              O link vale por tempo limitado e só pode ser usado uma vez. Pode abrir no celular ou no computador.
             </p>
           </div>
         ) : (
