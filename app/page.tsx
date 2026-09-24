@@ -4,7 +4,7 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col px-6">
       <header className="flex items-center justify-between py-6">
-        <span className="text-lg font-extrabold tracking-tight">Agenda Fisio</span>
+        <span className="text-lg font-extrabold tracking-tight">Agenda Fisio Pro</span>
         <Link href="/entrar" className="btn-ghost">Entrar</Link>
       </header>
 
