@@ -41,6 +41,7 @@ export default async function PainelLayout({ children }: { children: React.React
           <Link href="/painel/servicos" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Serviços</Link>
           <Link href="/painel/horarios" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Horários</Link>
           <Link href="/painel/assinatura" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Assinatura</Link>
+          <Link href="/painel/configuracoes" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Configurações</Link>
         </nav>
         <div className="flex items-center gap-2">
           <Link href={`/${clinic.slug}`} target="_blank" className="btn-ghost text-sm">Ver link público</Link>
