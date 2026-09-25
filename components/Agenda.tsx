@@ -9,13 +9,14 @@ type Prof = { id: string; display_name: string };
 type Svc = { id: string; name: string; duration_minutes: number; buffer_after_minutes: number; price_cents: number };
 type Appt = {
   id: string; patient_id: string; patient_package_id: string | null; starts_at: string; ends_at: string; status: string; price_cents: number;
+  color: string | null; internal_notes: string | null;
   patients: { full_name: string; phone: string } | null;
   services: { name: string } | null;
   professionals: { display_name: string } | null;
 };
 
 const STATUS: Record<string, { label: string; cls: string }> = {
-  pending: { label: "Aguardando", cls: "bg-amber/20 text-ink" },
+  pending: { label: "Aguardando confirmação", cls: "bg-amber/20 text-ink" },
   confirmed: { label: "Confirmado", cls: "bg-moss/15 text-moss-deep" },
   checked_in: { label: "Chegou", cls: "bg-moss/25 text-moss-deep" },
   completed: { label: "Realizado", cls: "bg-ink/10 text-ink" },
@@ -24,12 +25,21 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   cancelled_by_clinic: { label: "Cancelado", cls: "bg-blush text-danger" },
 };
 
+const CORES: Record<string, { dot: string; borda: string }> = {
+  red: { dot: "bg-red-500", borda: "border-l-red-500" },
+  yellow: { dot: "bg-amber", borda: "border-l-amber" },
+  green: { dot: "bg-moss", borda: "border-l-moss" },
+};
+
 export function Agenda({ clinicId, tz, professionals, services }: { clinicId: string; tz: string; professionals: Prof[]; services: Svc[] }) {
   const supabase = createClient();
   const [dia, setDia] = useState(() => new Date());
   const [appts, setAppts] = useState<Appt[]>([]);
   const [novo, setNovo] = useState(false);
   const [carregando, setCarregando] = useState(true);
+  const [notaAberta, setNotaAberta] = useState<string | null>(null);
+  const [notaTexto, setNotaTexto] = useState("");
+  const [salvandoNota, setSalvandoNota] = useState(false);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -37,7 +47,7 @@ export function Agenda({ clinicId, tz, professionals, services }: { clinicId: st
     const fim = new Date(dia); fim.setHours(23, 59, 59, 999);
     const { data } = await supabase
       .from("appointments")
-      .select("id, patient_id, patient_package_id, starts_at, ends_at, status, price_cents, patients(full_name, phone), services(name), professionals(display_name)")
+      .select("id, patient_id, patient_package_id, starts_at, ends_at, status, price_cents, color, internal_notes, patients(full_name, phone), services(name), professionals(display_name)")
       .eq("clinic_id", clinicId)
       .gte("starts_at", inicio.toISOString())
       .lte("starts_at", fim.toISOString())
@@ -54,6 +64,24 @@ export function Agenda({ clinicId, tz, professionals, services }: { clinicId: st
     if (status.startsWith("cancelled")) patch.cancelled_at = new Date().toISOString();
     await supabase.from("appointments").update(patch).eq("id", id);
     carregar();
+  }
+
+  async function mudarCor(id: string, color: string | null) {
+    await supabase.from("appointments").update({ color }).eq("id", id);
+    setAppts((prev) => prev.map((a) => (a.id === id ? { ...a, color } : a)));
+  }
+
+  function abrirNota(a: Appt) {
+    setNotaAberta(notaAberta === a.id ? null : a.id);
+    setNotaTexto(a.internal_notes ?? "");
+  }
+
+  async function salvarNota(id: string) {
+    setSalvandoNota(true);
+    await supabase.from("appointments").update({ internal_notes: notaTexto || null }).eq("id", id);
+    setAppts((prev) => prev.map((a) => (a.id === id ? { ...a, internal_notes: notaTexto || null } : a)));
+    setSalvandoNota(false);
+    setNotaAberta(null);
   }
 
   function mover(n: number) { const d = new Date(dia); d.setDate(d.getDate() + n); setDia(d); }
@@ -95,8 +123,10 @@ export function Agenda({ clinicId, tz, professionals, services }: { clinicId: st
             const st = STATUS[a.status];
             const ativo = !inativos.includes(a.status);
             const conflito = temConflito(a);
+            const cor = a.color ? CORES[a.color] : null;
+            const borda = conflito ? "border-l-4 border-amber" : cor ? `border-l-4 ${cor.borda}` : "";
             return (
-              <article key={a.id} className={`grid gap-3 rounded-xl bg-white p-4 md:grid-cols-[72px_1fr_auto] ${conflito ? "border-l-4 border-amber" : ""}`}>
+              <article key={a.id} className={`grid gap-3 rounded-xl bg-white p-4 md:grid-cols-[72px_1fr_auto] ${borda}`}>
                 <div>
                   <p className="text-xl font-extrabold tracking-tight">{fmtTime(a.starts_at, tz)}</p>
                   <p className="text-xs text-ink/50">até {fmtTime(a.ends_at, tz)}</p>
@@ -105,6 +135,35 @@ export function Agenda({ clinicId, tz, professionals, services }: { clinicId: st
                   <Link href={`/painel/pacientes/${a.patient_id}`} className="font-semibold hover:underline">{a.patients?.full_name}</Link>
                   <p className="text-sm text-ink/70">{a.services?.name} com {a.professionals?.display_name}</p>
                   <p className="text-sm text-ink/50">{a.patients?.phone} · {a.patient_package_id ? "sessão de pacote" : brl(a.price_cents)}</p>
+
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-xs text-ink/50">Marcador:</span>
+                    <button type="button" aria-label="Vermelho" onClick={() => mudarCor(a.id, a.color === "red" ? null : "red")}
+                      className={`size-4 rounded-full bg-red-500 ${a.color === "red" ? "ring-2 ring-offset-1 ring-red-500" : "opacity-40 hover:opacity-100"}`} />
+                    <button type="button" aria-label="Amarelo" onClick={() => mudarCor(a.id, a.color === "yellow" ? null : "yellow")}
+                      className={`size-4 rounded-full bg-amber ${a.color === "yellow" ? "ring-2 ring-offset-1 ring-amber" : "opacity-40 hover:opacity-100"}`} />
+                    <button type="button" aria-label="Verde" onClick={() => mudarCor(a.id, a.color === "green" ? null : "green")}
+                      className={`size-4 rounded-full bg-moss ${a.color === "green" ? "ring-2 ring-offset-1 ring-moss" : "opacity-40 hover:opacity-100"}`} />
+                    <button type="button" className="ml-2 text-xs text-ink/50 underline underline-offset-4" onClick={() => abrirNota(a)}>
+                      {a.internal_notes ? "Ver observação" : "Adicionar observação"}
+                    </button>
+                  </div>
+
+                  {notaAberta === a.id && (
+                    <div className="mt-2 space-y-2">
+                      <textarea className="field" rows={2} value={notaTexto} onChange={(e) => setNotaTexto(e.target.value)}
+                        placeholder="Observação interna, visível só para a clínica" />
+                      <div className="flex gap-2">
+                        <button className="btn-primary px-3 py-1 text-xs" onClick={() => salvarNota(a.id)} disabled={salvandoNota}>
+                          {salvandoNota ? "Salvando" : "Salvar"}
+                        </button>
+                        <button className="btn-ghost px-3 py-1 text-xs" onClick={() => setNotaAberta(null)}>Cancelar</button>
+                      </div>
+                    </div>
+                  )}
+                  {notaAberta !== a.id && a.internal_notes && (
+                    <p className="mt-2 rounded-lg bg-paper px-3 py-2 text-xs text-ink/70">{a.internal_notes}</p>
+                  )}
                 </div>
                 <div className="flex flex-col items-start gap-2 md:items-end">
                   <div className="flex gap-1">
@@ -113,12 +172,14 @@ export function Agenda({ clinicId, tz, professionals, services }: { clinicId: st
                   </div>
                   {ativo && (
                     <div className="flex flex-wrap gap-1">
-                      {a.status === "pending" && <button className="btn-ghost px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, "confirmed")}>Confirmar</button>}
+                      {a.status === "pending" && <button className="btn-primary px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, "confirmed")}>Autorizar</button>}
                       {a.status !== "checked_in" && <button className="btn-ghost px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, "checked_in")}>Chegou</button>}
                       <Link href={`/painel/pacientes/${a.patient_id}?appt=${a.id}`} className="btn-primary px-2 py-1 text-xs">Evoluir</Link>
                       <button className="btn-ghost px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, "completed")}>Realizado</button>
                       <button className="btn-danger px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, "no_show")}>Faltou</button>
-                      <button className="btn-danger px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, "cancelled_by_clinic")}>Cancelar</button>
+                      <button className="btn-danger px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, a.status === "pending" ? "cancelled_by_clinic" : "cancelled_by_clinic")}>
+                        {a.status === "pending" ? "Recusar" : "Cancelar"}
+                      </button>
                     </div>
                   )}
                 </div>
@@ -134,8 +195,7 @@ export function Agenda({ clinicId, tz, professionals, services }: { clinicId: st
             Novo atendimento
           </button>
         ) : (
-          <NovoAtendimento
-            clinicId={clinicId} dia={dia} professionals={professionals} services={services}
+          <NovoAtendimento clinicId={clinicId} dia={dia} professionals={professionals} services={services}
             onClose={() => setNovo(false)} onSaved={() => { setNovo(false); carregar(); }}
           />
         )}
