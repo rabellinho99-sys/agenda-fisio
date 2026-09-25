@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Assinar, Markdown } from "@/components/Assinar";
+import { ServicePhoto } from "@/components/ServicePhoto";
 import { brl, fmtCPF, fmtTime, toISODate, WEEKDAYS_SHORT } from "@/lib/format";
 
 export type PublicClinic = {
@@ -10,7 +11,7 @@ export type PublicClinic = {
   whatsapp: string | null; address: { city?: string; state?: string } | null; timezone: string;
   booking_settings: { max_advance_days?: number };
   professionals: { id: string; display_name: string; photo_url: string | null; bio: string | null; specialties: string[] | null }[] | null;
-  services: { id: string; name: string; description: string | null; category: string | null; duration_minutes: number; price_cents: number; requires_consent: boolean | null; consent_template_id: string | null; professional_ids: string[] | null }[] | null;
+  services: { id: string; name: string; description: string | null; category: string | null; duration_minutes: number; price_cents: number; requires_consent: boolean | null; image_url?: string | null; consent_template_id: string | null; professional_ids: string[] | null }[] | null;
 };
 
 type Slot = { starts_at: string; ends_at: string };
@@ -201,9 +202,14 @@ export function BookingFlow({ clinic }: { clinic: PublicClinic }) {
                 onClick={() => { setSvcId(s.id); setProfId(null); setSlot(null); }}
                 className={`rounded-xl border p-4 text-left transition-colors ${svcId === s.id ? "border-moss bg-white" : "border-mist bg-white/60 hover:border-moss/50"}`}
               >
+                <span className="flex gap-3">
+                <ServicePhoto imageUrl={s.image_url ?? null} name={s.name} description={s.description} />
+                <span className="block min-w-0 flex-1">
                 <p className="font-semibold">{s.name}{s.requires_consent && <span className="ml-2 rounded bg-amber/25 px-1.5 py-0.5 text-xs font-medium text-ink/80">exige termo</span>}</p>
                 {s.description && <p className="mt-1 text-sm text-ink/70">{s.description}</p>}
                 <p className="mt-2 text-sm text-ink/60">{s.duration_minutes} min · {brl(s.price_cents)}</p>
+                </span>
+                </span>
               </button>
             ))}
           </div>

@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { brl } from "@/lib/format";
+import { ServicePhotoEditor } from "@/components/ServicePhotoEditor";
 
-type Svc = { id: string; name: string; category: string | null; duration_minutes: number; buffer_after_minutes: number; price_cents: number; visible_online: boolean; active: boolean };
+type Svc = { id: string; name: string; category: string | null; duration_minutes: number; buffer_after_minutes: number; price_cents: number; visible_online: boolean; active: boolean; description: string | null; image_url: string | null };
 
 const vazio = { name: "", category: "", duration_minutes: 50, buffer_after_minutes: 0, price: "", visible_online: true };
 
@@ -17,7 +18,7 @@ export function Servicos({ clinicId, inicial }: { clinicId: string; inicial: Svc
 
   async function recarregar() {
     const { data } = await supabase.from("services")
-      .select("id, name, category, duration_minutes, buffer_after_minutes, price_cents, visible_online, active")
+      .select("id, name, category, duration_minutes, buffer_after_minutes, price_cents, visible_online, active, description, image_url")
       .eq("clinic_id", clinicId).eq("active", true).order("sort_order").order("name");
     setLista((data as Svc[]) ?? []);
   }
@@ -93,6 +94,10 @@ export function Servicos({ clinicId, inicial }: { clinicId: string; inicial: Svc
           <button className="btn-primary flex-1" onClick={salvar} disabled={!form.name || !form.duration_minutes}>{editando ? "Salvar alterações" : "Adicionar"}</button>
           {editando && <button className="btn-ghost" onClick={() => { setEditando(null); setForm(vazio); }}>Cancelar</button>}
         </div>
+        {editando ? (() => {
+          const atual = lista.find((x) => x.id === editando);
+          return atual ? <ServicePhotoEditor key={atual.id} clinicId={clinicId} serviceId={atual.id} imageUrl={atual.image_url} description={atual.description} onSaved={recarregar} /> : null;
+        })() : <p className="text-xs text-ink/60">Para adicionar foto e explicação para o paciente, salve o serviço e clique em Editar.</p>}
       </aside>
     </div>
   );
