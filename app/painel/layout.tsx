@@ -37,6 +37,7 @@ export default async function PainelLayout({ children }: { children: React.React
           <Link href="/painel/anamnese" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Anamnese</Link>
           <Link href="/painel/termos" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Termos</Link>
           <Link href="/painel/pacotes" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Pacotes</Link>
+          <Link href="/painel/financeiro" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Financeiro</Link>
           <Link href="/painel/servicos" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Serviços</Link>
           <Link href="/painel/horarios" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Horários</Link>
           <Link href="/painel/assinatura" className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper">Assinatura</Link>
@@ -59,7 +60,7 @@ export default async function PainelLayout({ children }: { children: React.React
       <main className="pb-16"><Gate blocked={access === "blocked"}>{children}</Gate></main>
 
       {/* Botão flutuante de suporte */}
-      <a
+      
         href="https://wa.me/5533999973101?text=Ol%C3%A1%2C+preciso+de+ajuda+com+o+Agenda+Fisio"
         target="_blank"
         rel="noopener noreferrer"
