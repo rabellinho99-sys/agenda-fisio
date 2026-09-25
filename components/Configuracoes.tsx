@@ -4,7 +4,16 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-type Clinic = { id: string; name: string; logo_url: string | null; brand_color: string | null };
+type BookingSettings = {
+  auto_confirm?: boolean;
+  deposit_percent?: number;
+  require_deposit?: boolean;
+  max_advance_days?: number;
+  min_advance_hours?: number;
+  slot_interval_minutes?: number;
+  allow_patient_cancel_hours?: number;
+};
+type Clinic = { id: string; name: string; logo_url: string | null; brand_color: string | null; booking_settings: BookingSettings | null };
 
 const TIPOS_ACEITOS = ["image/jpeg", "image/png", "image/webp"];
 const LIMITE_MB = 3;
@@ -16,6 +25,10 @@ export function Configuracoes({ clinic }: { clinic: Clinic }) {
   const [logoUrl, setLogoUrl] = useState(clinic.logo_url);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+
+  const [autoConfirm, setAutoConfirm] = useState(clinic.booking_settings?.auto_confirm ?? true);
+  const [salvandoConfirmacao, setSalvandoConfirmacao] = useState(false);
+  const [msgConfirmacao, setMsgConfirmacao] = useState<string | null>(null);
 
   function clicarUpload() {
     inputRef.current?.click();
@@ -69,10 +82,22 @@ export function Configuracoes({ clinic }: { clinic: Clinic }) {
     router.refresh();
   }
 
+  async function salvarConfirmacao(valor: boolean) {
+    setSalvandoConfirmacao(true);
+    setMsgConfirmacao(null);
+    const novasConfig = { ...(clinic.booking_settings ?? {}), auto_confirm: valor };
+    const { error } = await supabase.from("clinics").update({ booking_settings: novasConfig }).eq("id", clinic.id);
+    setSalvandoConfirmacao(false);
+    if (error) { setMsgConfirmacao(error.message); return; }
+    setAutoConfirm(valor);
+    setMsgConfirmacao("Salvo.");
+    router.refresh();
+  }
+
   return (
     <div>
       <h1 className="h-title text-3xl">Configurações</h1>
-      <p className="mt-1 text-ink/70">Personalize a identidade da sua clínica.</p>
+      <p className="mt-1 text-ink/70">Personalize a identidade e as regras de agendamento da sua clínica.</p>
 
       <div className="mt-6 rounded-xl bg-white p-6">
         <p className="font-bold">Logomarca</p>
@@ -81,7 +106,8 @@ export function Configuracoes({ clinic }: { clinic: Clinic }) {
         </p>
 
         <div className="mt-4 flex items-center gap-4">
-          <button type="button" onClick={clicarUpload}
+          <button type="button"
+            onClick={clicarUpload}
             className="group relative flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-mist bg-paper transition-colors hover:border-moss"
             aria-label="Enviar logomarca"
           >
@@ -113,6 +139,36 @@ export function Configuracoes({ clinic }: { clinic: Clinic }) {
         </div>
 
         {erro && <p className="mt-3 rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
+      </div>
+
+      <div className="mt-6 rounded-xl bg-white p-6">
+        <p className="font-bold">Confirmação de agendamentos</p>
+        <p className="mt-1 text-sm text-ink/60">
+          Define o que acontece quando um paciente marca um horário pelo link público.
+        </p>
+
+        <div className="mt-4 space-y-2">
+          <label className="flex items-start gap-3 rounded-lg border border-mist p-3 cursor-pointer has-[:checked]:border-moss has-[:checked]:bg-moss/5">
+            <input type="radio" name="auto_confirm" className="mt-1" checked={autoConfirm === true}
+              onChange={() => salvarConfirmacao(true)} disabled={salvandoConfirmacao} />
+            <span>
+              <span className="block font-semibold">Confirmação automática</span>
+              <span className="block text-sm text-ink/60">O horário reservado pelo paciente já entra confirmado na agenda.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 rounded-lg border border-mist p-3 cursor-pointer has-[:checked]:border-moss has-[:checked]:bg-moss/5">
+            <input type="radio" name="auto_confirm" className="mt-1" checked={autoConfirm === false}
+              onChange={() => salvarConfirmacao(false)} disabled={salvandoConfirmacao} />
+            <span>
+              <span className="block font-semibold">Confirmação manual (recomendado)</span>
+              <span className="block text-sm text-ink/60">
+                O horário fica reservado como "Aguardando confirmação" e só é garantido quando você autoriza na Agenda. Reduz faltas e trotes.
+              </span>
+            </span>
+          </label>
+        </div>
+
+        {msgConfirmacao && <p className="mt-3 text-sm text-ink/60">{msgConfirmacao}</p>}
       </div>
     </div>
   );
