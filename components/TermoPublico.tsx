@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Assinar, Markdown } from "@/components/Assinar";
 import { fmtCPF } from "@/lib/format";
 
-type Req = { clinic_name: string; patient_name: string; template_name: string; body: string; signed: boolean; expired: boolean };
+type Req = { clinic_name: string; clinic_logo_url?: string | null; patient_name: string; template_name: string; body: string; signed: boolean; expired: boolean };
 
 function mdParaHtml(md: string): string {
   return md
@@ -25,6 +25,7 @@ function mdParaHtml(md: string): string {
 
 function gerarPDF(
   clinicName: string,
+  clinicLogoUrl: string | null | undefined,
   templateName: string,
   paciente: string,
   cpf: string,
@@ -43,8 +44,9 @@ function gerarPDF(
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; max-width: 720px; margin: 40px auto; padding: 0 24px; }
-    header { border-bottom: 2px solid #1a1a1a; padding-bottom: 16px; margin-bottom: 24px; }
-    header p { font-size: 11px; color: #555; margin-top: 4px; }
+    header { border-bottom: 2px solid #1a1a1a; padding-bottom: 16px; margin-bottom: 24px; display: flex; align-items: center; gap: 12px; }
+    header .logo { width: 44px; height: 44px; border-radius: 9999px; object-fit: cover; flex-shrink: 0; }
+    header .titulo p { font-size: 11px; color: #555; margin-top: 4px; }
     h1 { font-size: 18px; font-weight: 800; }
     h2 { font-size: 14px; font-weight: 700; margin: 20px 0 8px; }
     h3 { font-size: 13px; font-weight: 700; margin: 16px 0 6px; }
@@ -62,8 +64,11 @@ function gerarPDF(
 </head>
 <body>
   <header>
-    <h1>${templateName}</h1>
-    <p>${clinicName} &mdash; 2ª via do paciente</p>
+    ${clinicLogoUrl ? `<img class="logo" src="${clinicLogoUrl}" alt=""/>` : ""}
+    <div class="titulo">
+      <h1>${templateName}</h1>
+      <p>${clinicName} &mdash; 2ª via do paciente</p>
+    </div>
   </header>
 
   <div class="dados">
@@ -128,19 +133,22 @@ export function TermoPublico({ token, req }: { token: string; req: Req }) {
   if (feito) {
     return (
       <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12">
-        <div className="flex size-12 items-center justify-center rounded-full bg-brand/10">
-          <svg className="size-6 text-brand" fill="none" viewBox="0 0 24 24">
-            <path d="M5 13l4 4L19 7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"/>
-          </svg>
-        </div>
+        {req.clinic_logo_url ? (
+          <img src={req.clinic_logo_url} alt="" className="size-12 rounded-full object-cover" />
+        ) : (
+          <div className="flex size-12 items-center justify-center rounded-full bg-brand/10">
+            <svg className="size-6 text-brand" fill="none" viewBox="0 0 24 24">
+              <path d="M5 13l4 4L19 7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"/>
+            </svg>
+          </div>
+        )}
         <p className="mt-4 text-sm text-ink/60">{req.clinic_name}</p>
         <h1 className="mt-1 text-3xl font-bold">Termo assinado.</h1>
         <p className="mt-3 text-ink/70">
           Uma cópia fica guardada no seu prontuário na clínica. Você pode revogar o consentimento a qualquer momento, é só avisar o profissional.
         </p>
 
-        <button
-          onClick={() => gerarPDF(req.clinic_name, req.template_name, nome, cpf, req.body, svgFinal, dataAssinatura || new Date().toLocaleString("pt-BR", { dateStyle: "long", timeStyle: "short" }))}
+        <button type="button" onClick={() => gerarPDF(req.clinic_name, req.clinic_logo_url, req.template_name, nome, cpf, req.body, svgFinal, dataAssinatura || new Date().toLocaleString("pt-BR", { dateStyle: "long", timeStyle: "short" }))}
           className="mt-6 flex items-center gap-2 rounded-xl border border-mist bg-white px-5 py-3 text-sm font-semibold text-ink hover:bg-paper transition-colors w-full justify-center"
         >
           <svg className="size-4" fill="none" viewBox="0 0 24 24">
@@ -186,8 +194,7 @@ export function TermoPublico({ token, req }: { token: string; req: Req }) {
           <span>Li o termo acima, compreendi as informações, tive minhas dúvidas respondidas e concordo com a realização do procedimento.</span>
         </label>
         {erro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
-        <button
-          className="btn-primary w-full"
+        <button className="btn-primary w-full"
           onClick={assinar}
           disabled={enviando || !li || !svg || nome.trim().length < 3 || cpf.replace(/\D/g, "").length !== 11}
         >
