@@ -59,7 +59,6 @@ export default async function PainelLayout({ children }: { children: React.React
       )}
       <main className="pb-16"><Gate blocked={access === "blocked"}>{children}</Gate></main>
 
-      {/* Botão flutuante de suporte */}
       
         href="https://wa.me/5533999973101?text=Ol%C3%A1%2C+preciso+de+ajuda+com+o+Agenda+Fisio"
         target="_blank"
