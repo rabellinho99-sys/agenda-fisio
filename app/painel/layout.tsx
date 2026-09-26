@@ -83,6 +83,7 @@ export default async function PainelLayout({ children }: { children: React.React
           <Link href="/painel/servicos" className={linkMenu}>Serviços</Link>
           <Link href="/painel/horarios" className={linkMenu}>Horários</Link>
           <Link href="/painel/assinatura" className={linkMenu}>Assinatura</Link>
+          <Link href="/painel/meus-dados" className={linkMenu}>Meus dados</Link>
           <Link href="/painel/configuracoes" className={linkMenu}>Configurações</Link>
         </nav>
         <div className="flex items-center gap-2">
