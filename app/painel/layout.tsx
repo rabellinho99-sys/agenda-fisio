@@ -77,6 +77,7 @@ export default async function PainelLayout({ children }: { children: React.React
           <Link href="/painel" className={linkMenu}>Agenda</Link>
           <Link href="/painel/pacientes" className={linkMenu}>Pacientes</Link>
           <Link href="/painel/anamnese" className={linkMenu}>Anamnese</Link>
+          <Link href="/painel/documentos" className={linkMenu}>Documentos</Link>
           <Link href="/painel/termos" className={linkMenu}>Termos</Link>
           <Link href="/painel/pacotes" className={linkMenu}>Pacotes</Link>
           <Link href="/painel/financeiro" className={linkMenu}>Financeiro</Link>
