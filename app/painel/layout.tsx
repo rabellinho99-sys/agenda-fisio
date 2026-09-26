@@ -6,7 +6,7 @@ import { SairButton } from "@/components/SairButton";
 import { Gate } from "@/components/Gate";
 
 const WHATSAPP_SUPORTE =
-  "https://wa.me/5533999973101?text=" +
+  "https://wa.me/5533999631999?text=" +
   "Ol%C3%A1%2C+preciso+de+ajuda+com+o+Agenda+Fisio";
 
 const ICONE_WHATSAPP_1 = [
