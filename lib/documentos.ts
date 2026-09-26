@@ -1,7 +1,7 @@
 // Montagem automática do texto dos documentos a partir do prontuário.
 // Funções puras: recebem os dados e devolvem as partes do documento.
 
-export type TipoDoc = "declaracao" | "atestado" | "relatorio" | "encaminhamento";
+export type TipoDoc = "declaracao" | "atestado" | "relatorio" | "encaminhamento" | "parecer" | "laudo";
 
 export type Paciente = { id: string; full_name: string; cpf: string | null; birth_date: string | null };
 
@@ -57,13 +57,99 @@ export type Secao = {
 };
 
 export const BLOCOS: { id: BlocoId; nome: string; tipos: TipoDoc[] }[] = [
-  { id: "anamnese", nome: "Anamnese", tipos: ["relatorio", "encaminhamento"] },
-  { id: "avaliacao", nome: "Avaliação (primeira evolução)", tipos: ["relatorio", "encaminhamento"] },
-  { id: "exames", nome: "Exames e imagens anexados", tipos: ["relatorio", "encaminhamento"] },
-  { id: "condutas", nome: "Sessões e procedimentos", tipos: ["relatorio"] },
-  { id: "evolucao", nome: "Evolução e escala de dor", tipos: ["relatorio", "encaminhamento"] },
+  { id: "anamnese", nome: "Anamnese", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
+  { id: "avaliacao", nome: "Avaliação e exame físico", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
+  { id: "exames", nome: "Exames e imagens anexados", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
+  { id: "condutas", nome: "Sessões e procedimentos", tipos: ["relatorio", "parecer"] },
+  { id: "evolucao", nome: "Evolução e escala de dor", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
   { id: "termos", nome: "Termos de consentimento assinados", tipos: ["relatorio"] },
 ];
+
+// ---------- Perícia (parecer e laudo) ----------
+
+export type Funcao = "perito" | "assistente_autor" | "assistente_reu" | "particular";
+
+export type Quesito = { id: string; origem: string; pergunta: string; resposta: string };
+
+export type Criterio = "" | "sim" | "nao" | "inconclusivo";
+
+export type Pericia = {
+  funcao: Funcao;
+  numero: string;
+  juizo: string;
+  autor: string;
+  reu: string;
+  solicitante: string;
+  dataExame: string;
+  localExame: string;
+  presentes: string;
+  documentos: string;
+  nexo: Record<"cronologico" | "topografico" | "anatomico" | "continuidade" | "exclusao", Criterio>;
+  incapacidade: "" | "sem" | "parcial_temporaria" | "parcial_permanente" | "total_temporaria" | "total_permanente";
+  dataInicio: string;
+  reavaliacaoMeses: string;
+  quesitos: Quesito[];
+};
+
+export const PERICIA_INICIAL: Pericia = {
+  funcao: "perito",
+  numero: "",
+  juizo: "",
+  autor: "",
+  reu: "",
+  solicitante: "",
+  dataExame: "",
+  localExame: "",
+  presentes: "",
+  documentos: "",
+  nexo: { cronologico: "", topografico: "", anatomico: "", continuidade: "", exclusao: "" },
+  incapacidade: "",
+  dataInicio: "",
+  reavaliacaoMeses: "",
+  quesitos: [],
+};
+
+export const CRITERIOS_NEXO: { id: keyof Pericia["nexo"]; nome: string; explicacao: string }[] = [
+  { id: "cronologico", nome: "Nexo cronológico", explicacao: "o quadro surgiu depois do fato alegado, em intervalo compatível" },
+  { id: "topografico", nome: "Nexo topográfico", explicacao: "a região acometida corresponde à região exposta ou atingida" },
+  { id: "anatomico", nome: "Nexo anatomopatológico", explicacao: "o tipo de lesão é compatível com o mecanismo descrito" },
+  { id: "continuidade", nome: "Nexo de continuidade", explicacao: "há sintomas e registros contínuos desde o fato até o exame" },
+  { id: "exclusao", nome: "Exclusão de outras causas", explicacao: "não há causa preexistente ou alheia que explique melhor o quadro" },
+];
+
+export const FUNCOES: { id: Funcao; nome: string; assinatura: string }[] = [
+  { id: "perito", nome: "Perito(a) do juízo", assinatura: "Perito(a) fisioterapeuta" },
+  { id: "assistente_autor", nome: "Assistente técnico(a) da parte autora", assinatura: "Assistente técnico(a) fisioterapeuta" },
+  { id: "assistente_reu", nome: "Assistente técnico(a) da parte ré", assinatura: "Assistente técnico(a) fisioterapeuta" },
+  { id: "particular", nome: "Parecer a pedido particular", assinatura: "Fisioterapeuta" },
+];
+
+export const INCAPACIDADES: { id: Pericia["incapacidade"]; nome: string }[] = [
+  { id: "", nome: "Não informar" },
+  { id: "sem", nome: "Sem incapacidade para a atividade habitual" },
+  { id: "parcial_temporaria", nome: "Incapacidade parcial e temporária" },
+  { id: "parcial_permanente", nome: "Incapacidade parcial e permanente" },
+  { id: "total_temporaria", nome: "Incapacidade total e temporária" },
+  { id: "total_permanente", nome: "Incapacidade total e permanente" },
+];
+
+// Separa um bloco de quesitos colado (numerados 1., 1), a), etc.) em itens
+export function separarQuesitos(texto: string, origem: string): Quesito[] {
+  const linhas = texto.replace(/\r/g, "").split("\n");
+  const itens: string[] = [];
+  for (const l of linhas) {
+    const t = l.trim();
+    if (!t) continue;
+    if (/^(\d{1,3}|[a-zA-Z])\s*[\)\.\-–:]\s+/.test(t) || !itens.length) itens.push(t);
+    else itens[itens.length - 1] += " " + t;
+  }
+  return itens.map((t, i) => ({
+    id: `q-${Date.now()}-${i}`,
+    origem,
+    pergunta: t.replace(/^(\d{1,3}|[a-zA-Z])\s*[\)\.\-–:]\s+/, "").trim(),
+    resposta: "",
+  }));
+}
 
 export const CAMPOS_INICIAIS: Campos = {
   atendimentoId: "",
@@ -208,7 +294,176 @@ function intercorrencias(): Secao {
   };
 }
 
-export function gerarSecoes(tipo: TipoDoc, p: Paciente, pr: Prontuario, c: Campos): Secao[] {
+function textoQuesitos(qs: Quesito[]) {
+  const validos = qs.filter((q) => q.pergunta.trim());
+  if (!validos.length) return "";
+  const grupos = new Map<string, Quesito[]>();
+  for (const q of validos) {
+    const k = q.origem.trim() || "Quesitos";
+    grupos.set(k, [...(grupos.get(k) ?? []), q]);
+  }
+  const partes: string[] = [];
+  for (const [origem, lista] of grupos) {
+    partes.push(origem === "Quesitos" ? "Quesitos" : `Quesitos ${origem.toLowerCase().startsWith("do") || origem.toLowerCase().startsWith("da") ? origem : `de ${origem}`}`);
+    lista.forEach((q, i) => {
+      partes.push(`${i + 1}. ${ponto(q.pergunta.trim())}`);
+      partes.push(`Resposta: ${q.resposta.trim() ? ponto(q.resposta.trim()) : "[responder]"}`);
+    });
+    partes.push("");
+  }
+  return partes.join("\n").trim();
+}
+
+function textoNexo(n: Pericia["nexo"]) {
+  const rot: Record<Criterio, string> = { "": "", sim: "presente", nao: "ausente", inconclusivo: "inconclusivo" };
+  const linhas = CRITERIOS_NEXO.filter((c) => n[c.id]).map(
+    (c) => `${c.nome} (${c.explicacao}): ${rot[n[c.id]]}.`
+  );
+  if (!linhas.length) return "";
+  const vals = CRITERIOS_NEXO.map((c) => n[c.id]).filter(Boolean);
+  let sintese = "";
+  if (vals.length === CRITERIOS_NEXO.length && vals.every((v) => v === "sim")) {
+    sintese = "Todos os critérios analisados estão presentes, o que sustenta tecnicamente o nexo de causalidade.";
+  } else if (vals.some((v) => v === "nao")) {
+    sintese = "A ausência de ao menos um critério fragiliza o estabelecimento do nexo de causalidade.";
+  } else if (vals.some((v) => v === "inconclusivo")) {
+    sintese = "Parte dos critérios mostrou-se inconclusiva com os elementos disponíveis.";
+  }
+  return ["Quanto ao nexo de causalidade, foram analisados os seguintes critérios:", ...linhas, sintese]
+    .filter(Boolean).join("\n");
+}
+
+function textoConclusaoIncapacidade(pe: Pericia, sujeito: string) {
+  if (!pe.incapacidade) return "";
+  if (pe.incapacidade === "sem") {
+    return `Conclui-se que o(a) ${sujeito} não apresenta, do ponto de vista cinesiológico funcional, incapacidade para o exercício de sua atividade habitual.`;
+  }
+  const nome = INCAPACIDADES.find((i) => i.id === pe.incapacidade)?.nome.toLowerCase().replace("incapacidade ", "") ?? "";
+  const inicio = pe.dataInicio ? `, com início estimado em ${isoParaBR(pe.dataInicio)}` : "";
+  const reav =
+    pe.incapacidade.endsWith("temporaria") && Number(pe.reavaliacaoMeses) > 0
+      ? `, sugerindo-se reavaliação em ${Number(pe.reavaliacaoMeses)} ${Number(pe.reavaliacaoMeses) === 1 ? "mês" : "meses"}`
+      : "";
+  return `Conclui-se que o(a) ${sujeito} apresenta, do ponto de vista cinesiológico funcional, incapacidade ${nome} para o exercício de sua atividade habitual${inicio}${reav}.`;
+}
+
+function gerarPericia(tipo: "parecer" | "laudo", p: Paciente, pr: Prontuario, pe: Pericia): Secao[] {
+  const notas = pr.notas;
+  const ultima = notas[notas.length - 1];
+  const anos = idade(p.birth_date);
+  const profissao = textoResposta(pr.anamnese?.answers?.["trabalho"]);
+  const partesProc = [pe.autor && `movido por ${pe.autor}`, pe.reu && `em face de ${pe.reu}`].filter(Boolean).join(" ");
+  const proc = [
+    pe.numero && `nos autos do processo nº ${pe.numero}`,
+    pe.juizo && `em trâmite na ${pe.juizo}`,
+    partesProc,
+  ].filter(Boolean).join(", ");
+  const exame = pe.dataExame
+    ? `, a partir do exame realizado em ${isoParaBR(pe.dataExame)}${pe.localExame ? `, em ${pe.localExame}` : ""}`
+    : "";
+
+  let preambulo = "";
+  if (pe.funcao === "perito") {
+    preambulo = `Na qualidade de perito(a) fisioterapeuta nomeado(a)${proc ? ` ${proc}` : ""}, apresento o presente laudo pericial fisioterapêutico${exame}.`;
+  } else if (pe.funcao === "particular") {
+    preambulo = `A pedido de ${pe.solicitante || "[solicitante]"}, apresento parecer técnico fisioterapêutico sobre o caso de ${p.full_name}${exame}.`;
+  } else {
+    const parte = pe.funcao === "assistente_autor" ? "autora" : "ré";
+    preambulo = `Na qualidade de assistente técnico(a) da parte ${parte}${proc ? `, ${proc}` : ""}, apresento o presente parecer técnico fisioterapêutico${exame}.`;
+  }
+
+  const identProc = [
+    pe.numero && `Processo nº: ${pe.numero}`,
+    pe.juizo && `Juízo ou órgão: ${pe.juizo}`,
+    pe.autor && `Parte autora: ${pe.autor}`,
+    pe.reu && `Parte ré: ${pe.reu}`,
+  ].filter(Boolean).join("\n");
+
+  const identPac = [
+    `Nome: ${p.full_name}`,
+    p.cpf && `CPF: ${p.cpf}`,
+    p.birth_date && `Data de nascimento: ${isoParaBR(p.birth_date)}${anos !== null ? ` (${anos} anos)` : ""}`,
+    profissao && `Profissão e atividade habitual: ${profissao}`,
+  ].filter(Boolean).join("\n");
+
+  const docs = [pe.documentos.trim(), textoExames(pr)].filter(Boolean).join("\n");
+
+  const exameFisico = [
+    ultima?.objective && `Exame físico funcional: ${ponto(ultima.objective)}`,
+    ultima?.assessment && `Diagnóstico cinesiológico funcional: ${ponto(ultima.assessment)}`,
+    ultima?.pain_before !== null && ultima?.pain_before !== undefined
+      ? `Dor referida pela Escala Visual Analógica (EVA, 0 a 10): ${ultima.pain_before}.`
+      : "",
+  ].filter(Boolean).join("\n");
+
+  const secoes: Secao[] = [
+    { id: "preambulo", titulo: "", texto: preambulo },
+    { id: "processo", titulo: "Identificação do processo", texto: identProc },
+    { id: "identificacao", titulo: tipo === "laudo" ? "Identificação do(a) periciando(a)" : "Identificação do(a) examinado(a)", texto: identPac },
+    {
+      id: "objetivo",
+      titulo: "Objetivo",
+      texto: tipo === "laudo"
+        ? "Avaliar a capacidade funcional do(a) periciando(a) e a existência de nexo entre as alterações encontradas e os fatos narrados nos autos."
+        : "Analisar tecnicamente a condição cinesiológica funcional do(a) examinado(a) e os elementos do caso, sob a ótica da fisioterapia.",
+    },
+    {
+      id: "presentes",
+      titulo: "Presentes ao exame",
+      texto: pe.presentes.trim(),
+      dica: "Opcional. Ex.: o(a) periciando(a) e o(a) assistente técnico(a) da parte ré, Dr(a). Fulano.",
+    },
+    { id: "anamnese", titulo: "Histórico", bloco: "anamnese", texto: textoAnamnese(pr.anamnese) },
+    { id: "documentos", titulo: "Documentos analisados", texto: docs, dica: "Ex.: petição inicial, laudos médicos, exames de imagem, CAT, prontuários." },
+    {
+      id: "metodologia",
+      titulo: "Metodologia",
+      texto:
+        "Anamnese dirigida, inspeção, palpação, avaliação da amplitude de movimento, testes de força muscular, " +
+        "testes ortopédicos específicos, avaliação funcional das atividades e da dor pela Escala Visual Analógica, " +
+        "com classificação da funcionalidade segundo a Classificação Internacional de Funcionalidade, Incapacidade e Saúde (CIF/OMS).",
+    },
+    { id: "avaliacao", titulo: "Exame fisioterapêutico", bloco: "avaliacao", texto: exameFisico },
+    { id: "evolucao", titulo: "Evolução do quadro", bloco: "evolucao", texto: textoEvolucao(notas, false) },
+  ];
+  if (tipo === "parecer") {
+    secoes.push({ id: "condutas", titulo: "Tratamento realizado", bloco: "condutas", texto: textoCondutas(notas) });
+  }
+  secoes.push(
+    {
+      id: "discussao",
+      titulo: "Discussão",
+      texto: textoNexo(pe.nexo),
+      dica: "Relacione os achados do exame com os fatos e documentos. Os critérios de nexo marcados acima entram aqui automaticamente.",
+    },
+    intercorrencias(),
+    {
+      id: "conclusao",
+      titulo: "Conclusão",
+      texto: textoConclusaoIncapacidade(pe, tipo === "laudo" ? "periciando(a)" : "examinado(a)"),
+      dica: "Síntese objetiva da resposta técnica ao que foi perguntado.",
+    },
+    { id: "quesitos", titulo: "Respostas aos quesitos", texto: textoQuesitos(pe.quesitos) },
+    {
+      id: "encerramento",
+      titulo: "",
+      texto: tipo === "laudo"
+        ? "Nada mais havendo a relatar, encerro o presente laudo, que segue assinado."
+        : "Sendo o que havia a relatar, subscrevo o presente parecer técnico.",
+    },
+  );
+  return secoes;
+}
+
+export function gerarSecoes(
+  tipo: TipoDoc,
+  p: Paciente,
+  pr: Prontuario,
+  c: Campos,
+  pe: Pericia = PERICIA_INICIAL
+): Secao[] {
+  if (tipo === "parecer" || tipo === "laudo") return gerarPericia(tipo, p, pr, pe);
+
   const at = pr.atendimentos.find((a) => a.id === c.atendimentoId) ?? pr.atendimentos[0];
   const dataAt = at ? dataBR(at.starts_at) : isoParaBR(hojeISO());
   const notas = pr.notas;

@@ -18,7 +18,12 @@ type Snapshot = {
   patient: { name: string; cpf: string | null; birth_date: string | null };
 };
 
-type Corpo = { secoes: { titulo: string; texto: string }[]; cid?: string | null; cid_autorizado?: boolean };
+type Corpo = {
+  secoes: { titulo: string; texto: string }[];
+  cid?: string | null;
+  cid_autorizado?: boolean;
+  assinatura_rotulo?: string;
+};
 
 const TZ = "America/Sao_Paulo";
 
@@ -142,7 +147,7 @@ export default async function DocumentoPage({ params }: { params: Promise<{ id: 
           </div>
           <div className="mt-1 w-[80mm] border-t border-black pt-1">
             <p className="font-bold">{snap.professional.name}</p>
-            <p>Fisioterapeuta{registro ? ` | ${registro}` : ""}</p>
+            <p>{corpo.assinatura_rotulo ?? "Fisioterapeuta"}{registro ? ` | ${registro}` : ""}</p>
             {snap.professional.titles && <p className="text-[9.5pt]">{snap.professional.titles}</p>}
           </div>
         </div>

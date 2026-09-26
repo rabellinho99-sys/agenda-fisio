@@ -38,6 +38,7 @@ export default async function DocumentosPage() {
 
   return (
     <Documentos
+      clinicId={member.clinic_id}
       pacientes={pacientes ?? []}
       documentos={(documentos ?? []) as never}
       catalogo={(catalogo ?? []) as CifCodigo[]}

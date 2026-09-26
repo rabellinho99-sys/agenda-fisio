@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CifSeletor } from "@/components/CifSeletor";
+import { PericiaCampos } from "@/components/PericiaCampos";
 import {
   codigoComQualificador,
   descricaoQualificador,
@@ -13,6 +14,8 @@ import {
 import {
   BLOCOS,
   CAMPOS_INICIAIS,
+  FUNCOES,
+  PERICIA_INICIAL,
   dataBR,
   gerarSecoes,
   hojeISO,
@@ -21,12 +24,19 @@ import {
   type BlocoId,
   type Campos,
   type Paciente,
+  type Pericia,
   type Prontuario,
   type Secao,
   type TipoDoc,
 } from "@/lib/documentos";
 
-type Corpo = { secoes: Secao[]; cid?: string | null; cid_autorizado?: boolean };
+type Corpo = {
+  secoes: Secao[];
+  cid?: string | null;
+  cid_autorizado?: boolean;
+  pericia?: Pericia;
+  assinatura_rotulo?: string;
+};
 
 type DocLista = {
   id: string;
@@ -41,6 +51,7 @@ type DocLista = {
 };
 
 type Props = {
+  clinicId: string;
   pacientes: Paciente[];
   documentos: DocLista[];
   catalogo: CifCodigo[];
@@ -52,15 +63,21 @@ const TIPOS: { id: TipoDoc; nome: string; descricao: string }[] = [
   { id: "atestado", nome: "Atestado", descricao: "Afastamento ou aptidão funcional por um período." },
   { id: "relatorio", nome: "Relatório fisioterapêutico", descricao: "Resumo do acompanhamento, montado a partir do prontuário." },
   { id: "encaminhamento", nome: "Encaminhamento", descricao: "Para médico ou outro profissional, com resumo clínico." },
+  { id: "laudo", nome: "Laudo pericial fisioterapêutico", descricao: "Como perito(a) do juízo: processo, exame, nexo, conclusão e quesitos." },
+  { id: "parecer", nome: "Parecer técnico fisioterapêutico", descricao: "Como assistente técnico(a) ou a pedido particular, com quesitos." },
 ];
 
 const TODOS_BLOCOS: Record<BlocoId, boolean> = {
   anamnese: true, avaliacao: true, exames: true, condutas: true, evolucao: true, termos: true,
 };
 
-export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: Props) {
+export function Documentos({ clinicId, pacientes: pacientesIniciais, documentos, catalogo, cidadeClinica }: Props) {
   const supabase = createClient();
   const [modo, setModo] = useState<"lista" | "novo">("lista");
+  const [pacientes, setPacientes] = useState<Paciente[]>(pacientesIniciais);
+  const [novoPac, setNovoPac] = useState<{ nome: string; cpf: string; nasc: string; tel: string } | null>(null);
+  const [salvandoPac, setSalvandoPac] = useState(false);
+  const [pericia, setPericia] = useState<Pericia>(PERICIA_INICIAL);
   const [filtro, setFiltro] = useState("");
 
   const [pacienteId, setPacienteId] = useState("");
@@ -146,8 +163,8 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
 
   // partes geradas automaticamente, com as edições do profissional por cima
   const geradas = useMemo(
-    () => (paciente && prontuario ? gerarSecoes(tipo, paciente, prontuario, campos) : []),
-    [tipo, paciente, prontuario, campos]
+    () => (paciente && prontuario ? gerarSecoes(tipo, paciente, prontuario, campos, pericia) : []),
+    [tipo, paciente, prontuario, campos, pericia]
   );
   const secoes: Secao[] = useMemo(() => {
     const base = geradas
@@ -164,6 +181,8 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
     setBuscaPaciente("");
     setTipo("declaracao");
     setCampos(CAMPOS_INICIAIS);
+    setPericia(PERICIA_INICIAL);
+    setNovoPac(null);
     setBlocos(TODOS_BLOCOS);
     setEditadas({});
     setExtras([]);
@@ -200,6 +219,7 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
       anamnese: ids.has("anamnese"), avaliacao: ids.has("avaliacao"), exames: ids.has("exames"),
       condutas: ids.has("condutas"), evolucao: ids.has("evolucao"), termos: ids.has("termos"),
     });
+    if (d.body?.pericia) setPericia({ ...PERICIA_INICIAL, ...d.body.pericia });
     setCif(d.cif ?? []);
     setUsarCif((d.cif ?? []).length > 0);
     setCid(d.body?.cid ?? "");
@@ -227,7 +247,40 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
   }
 
   const tituloDoc = TIPOS.find((t) => t.id === tipo)?.nome ?? "Documento";
-  const mostraClinico = tipo === "atestado" || tipo === "relatorio" || tipo === "encaminhamento";
+  const ehPericia = tipo === "parecer" || tipo === "laudo";
+  const mostraClinico = tipo !== "declaracao";
+
+  async function cadastrarPaciente() {
+    if (!novoPac) return;
+    const tel = novoPac.tel.replace(/\D/g, "");
+    if (novoPac.nome.trim().length < 3) return setErro("Informe o nome completo.");
+    if (tel.length < 10) return setErro("Informe um telefone com DDD.");
+    setErro(null);
+    setSalvandoPac(true);
+    const { data, error } = await supabase
+      .from("patients")
+      .insert({
+        clinic_id: clinicId,
+        full_name: novoPac.nome.trim(),
+        cpf: novoPac.cpf.trim() || null,
+        birth_date: novoPac.nasc || null,
+        phone: tel,
+        whatsapp_opt_in: false,
+      })
+      .select("id, full_name, cpf, birth_date")
+      .single();
+    setSalvandoPac(false);
+    if (error) {
+      return setErro(
+        error.message.includes("duplicate")
+          ? "Já existe um paciente com esse telefone. Busque pelo nome na lista."
+          : `Não foi possível cadastrar: ${error.message}`
+      );
+    }
+    setPacientes((ps) => [...ps, data as Paciente].sort((a, b) => a.full_name.localeCompare(b.full_name)));
+    setPacienteId((data as Paciente).id);
+    setNovoPac(null);
+  }
 
   async function emitir() {
     setErro(null);
@@ -237,12 +290,17 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
     if (cid.trim() && !cidAutorizado) {
       return setErro("Para incluir o CID, confirme que o paciente autorizou. Ou apague o campo CID.");
     }
+    const pendentes = finais.some((s) => /\[(responder|solicitante)\]/.test(s.texto));
+    if (pendentes && !window.confirm("Há quesitos sem resposta ou campos marcados entre colchetes. Emitir mesmo assim?")) return;
     if (!window.confirm("Depois de emitido, o documento não pode ser alterado (só substituído por nova versão). Emitir agora?")) return;
     setEmitindo(true);
     const corpo: Corpo = {
       secoes: finais.map(({ id, titulo, texto }) => ({ id, titulo, texto })),
       cid: cid.trim() || null,
       cid_autorizado: cid.trim() ? cidAutorizado : false,
+      ...(ehPericia
+        ? { pericia, assinatura_rotulo: FUNCOES.find((f) => f.id === pericia.funcao)?.assinatura ?? "Fisioterapeuta" }
+        : {}),
     };
     const { data, error } = await supabase.rpc("issue_document", {
       p_patient: paciente.id,
@@ -351,6 +409,47 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
               onChange={(e) => setBuscaPaciente(e.target.value)}
               autoFocus
             />
+            {!novoPac ? (
+              <button
+                className="mt-2 text-sm font-semibold underline underline-offset-4"
+                onClick={() => setNovoPac({ nome: buscaPaciente, cpf: "", nasc: "", tel: "" })}
+              >
+                Cadastrar novo paciente ou periciando
+              </button>
+            ) : (
+              <div className="mt-3 grid gap-3 rounded-lg bg-paper p-3 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <label className="label" htmlFor="np-nome">Nome completo</label>
+                  <input id="np-nome" className="field w-full" value={novoPac.nome}
+                    onChange={(e) => setNovoPac({ ...novoPac, nome: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label" htmlFor="np-tel">Telefone com DDD</label>
+                  <input id="np-tel" className="field w-full" value={novoPac.tel} placeholder="(33) 99999-9999"
+                    onChange={(e) => setNovoPac({ ...novoPac, tel: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label" htmlFor="np-cpf">CPF</label>
+                  <input id="np-cpf" className="field w-full" value={novoPac.cpf}
+                    onChange={(e) => setNovoPac({ ...novoPac, cpf: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label" htmlFor="np-nasc">Data de nascimento</label>
+                  <input id="np-nasc" type="date" className="field w-full" value={novoPac.nasc}
+                    onChange={(e) => setNovoPac({ ...novoPac, nasc: e.target.value })} />
+                </div>
+                <div className="flex items-end gap-2">
+                  <button className="btn-primary text-sm" onClick={cadastrarPaciente} disabled={salvandoPac}>
+                    {salvandoPac ? "Salvando" : "Cadastrar e usar"}
+                  </button>
+                  <button className="btn-ghost text-sm" onClick={() => setNovoPac(null)}>Cancelar</button>
+                </div>
+                <p className="text-xs text-ink/60 md:col-span-2">
+                  Cadastro rápido, sem mensagens de WhatsApp. Pode ser completado depois em Pacientes.
+                </p>
+                {erro && <p className="text-sm text-danger md:col-span-2">{erro}</p>}
+              </div>
+            )}
             <ul className="mt-2 max-h-60 overflow-y-auto">
               {pacientesFiltrados.map((p) => (
                 <li key={p.id}>
@@ -382,7 +481,13 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
                 <button
                   key={t.id}
                   disabled={!!substitui}
-                  onClick={() => { setTipo(t.id); setEditadas({}); setExtras([]); }}
+                  onClick={() => {
+                    setTipo(t.id);
+                    setEditadas({});
+                    setExtras([]);
+                    if (t.id === "laudo") setPericia((p) => ({ ...p, funcao: "perito" }));
+                    if (t.id === "parecer" && pericia.funcao === "perito") setPericia((p) => ({ ...p, funcao: "assistente_autor" }));
+                  }}
                   className={`rounded-lg border p-3 text-left text-sm disabled:opacity-60 ${
                     tipo === t.id ? "border-ink bg-paper" : "border-ink/15"
                   }`}
@@ -462,6 +567,18 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
               )}
             </div>
           </section>
+
+          {ehPericia && (
+            <section className="rounded-xl bg-white p-4">
+              <p className="text-base font-extrabold">Dados da perícia</p>
+              <p className="mt-1 text-xs text-ink/60">
+                Preencha o que tiver. Tudo entra automaticamente no texto, e o que ficar em branco não aparece.
+              </p>
+              <div className="mt-3">
+                <PericiaCampos valor={pericia} aoMudar={setPericia} tipo={tipo as "parecer" | "laudo"} />
+              </div>
+            </section>
+          )}
 
           {/* 3. o que puxar do prontuário */}
           {blocosDoTipo.length > 0 && (
