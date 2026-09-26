@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CifSeletor } from "@/components/CifSeletor";
 import { PericiaCampos } from "@/components/PericiaCampos";
+import { INFO_RECURSO, temRecurso, type Recurso, type Recursos } from "@/lib/planos";
 import {
   codigoComQualificador,
   descricaoQualificador,
@@ -51,6 +52,7 @@ type DocLista = {
 };
 
 type Props = {
+  recursos: Recursos;
   clinicId: string;
   pacientes: Paciente[];
   documentos: DocLista[];
@@ -71,7 +73,14 @@ const TODOS_BLOCOS: Record<BlocoId, boolean> = {
   anamnese: true, avaliacao: true, testes: true, exames: true, condutas: true, evolucao: true, termos: true,
 };
 
-export function Documentos({ clinicId, pacientes: pacientesIniciais, documentos, catalogo, cidadeClinica }: Props) {
+const RECURSO_DO_TIPO: Partial<Record<TipoDoc, Recurso>> = {
+  relatorio: "documentos_clinicos",
+  encaminhamento: "documentos_clinicos",
+  laudo: "pericia",
+  parecer: "pericia",
+};
+
+export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, documentos, catalogo, cidadeClinica }: Props) {
   const supabase = createClient();
   const [modo, setModo] = useState<"lista" | "novo">("lista");
   const [pacientes, setPacientes] = useState<Paciente[]>(pacientesIniciais);
@@ -480,7 +489,24 @@ export function Documentos({ clinicId, pacientes: pacientesIniciais, documentos,
           <section className="rounded-xl bg-white p-4">
             <p className="text-base font-extrabold">2. Tipo de documento</p>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
-              {TIPOS.map((t) => (
+              {TIPOS.map((t) => {
+                const rec = RECURSO_DO_TIPO[t.id];
+                const bloqueado = !!rec && !temRecurso(recursos, rec);
+                if (bloqueado) {
+                  return (
+                    <a
+                      key={t.id}
+                      href="/painel/assinatura"
+                      className="rounded-lg border border-dashed border-ink/20 p-3 text-left text-sm opacity-70 hover:opacity-100"
+                    >
+                      <span className="font-semibold">🔒 {t.nome}</span>
+                      <span className="mt-1 block text-xs text-ink/60">
+                        Disponível a partir do plano {INFO_RECURSO[rec!].plano}. Toque para fazer upgrade.
+                      </span>
+                    </a>
+                  );
+                }
+                return (
                 <button
                   key={t.id}
                   disabled={!!substitui}
@@ -498,7 +524,8 @@ export function Documentos({ clinicId, pacientes: pacientesIniciais, documentos,
                   <span className="font-semibold">{t.nome}</span>
                   <span className="mt-1 block text-xs text-ink/60">{t.descricao}</span>
                 </button>
-              ))}
+                );
+              })}
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
