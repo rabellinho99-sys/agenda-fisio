@@ -68,7 +68,7 @@ const TIPOS: { id: TipoDoc; nome: string; descricao: string }[] = [
 ];
 
 const TODOS_BLOCOS: Record<BlocoId, boolean> = {
-  anamnese: true, avaliacao: true, exames: true, condutas: true, evolucao: true, termos: true,
+  anamnese: true, avaliacao: true, testes: true, exames: true, condutas: true, evolucao: true, termos: true,
 };
 
 export function Documentos({ clinicId, pacientes: pacientesIniciais, documentos, catalogo, cidadeClinica }: Props) {
@@ -123,7 +123,7 @@ export function Documentos({ clinicId, pacientes: pacientesIniciais, documentos,
     let ativo = true;
     (async () => {
       setCarregandoPront(true);
-      const [an, no, at, im, te, ci] = await Promise.all([
+      const [an, no, at, im, te, ci, af] = await Promise.all([
         supabase.from("anamnesis_responses").select("created_at, answers, fields_snapshot")
           .eq("patient_id", pacienteId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("clinical_notes")
@@ -139,9 +139,12 @@ export function Documentos({ clinicId, pacientes: pacientesIniciais, documentos,
           .eq("patient_id", pacienteId).order("signed_at", { ascending: true }),
         supabase.from("patient_cif").select("items")
           .eq("patient_id", pacienteId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        supabase.from("physical_assessments").select("performed_at, ortho_results, strength_results, notes")
+          .eq("patient_id", pacienteId).order("performed_at", { ascending: false }).limit(1).maybeSingle(),
       ]);
       if (!ativo) return;
       const pr: Prontuario = {
+        avaliacaoFisica: (af.data as Prontuario["avaliacaoFisica"]) ?? null,
         anamnese: (an.data as Prontuario["anamnese"]) ?? null,
         notas: (no.data as Prontuario["notas"]) ?? [],
         atendimentos: (at.data as Prontuario["atendimentos"]) ?? [],
@@ -216,7 +219,7 @@ export function Documentos({ clinicId, pacientes: pacientesIniciais, documentos,
     setEditadas(ed);
     setExtras(ex);
     setBlocos({
-      anamnese: ids.has("anamnese"), avaliacao: ids.has("avaliacao"), exames: ids.has("exames"),
+      anamnese: ids.has("anamnese"), avaliacao: ids.has("avaliacao"), testes: ids.has("testes"), exames: ids.has("exames"),
       condutas: ids.has("condutas"), evolucao: ids.has("evolucao"), termos: ids.has("termos"),
     });
     if (d.body?.pericia) setPericia({ ...PERICIA_INICIAL, ...d.body.pericia });

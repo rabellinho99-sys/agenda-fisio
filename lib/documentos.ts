@@ -1,6 +1,8 @@
 // Montagem automática do texto dos documentos a partir do prontuário.
 // Funções puras: recebem os dados e devolvem as partes do documento.
 
+import { textoForca, textoOrto, type LinhaForca, type ResultadoOrto } from "./forca";
+
 export type TipoDoc = "declaracao" | "atestado" | "relatorio" | "encaminhamento" | "parecer" | "laudo";
 
 export type Paciente = { id: string; full_name: string; cpf: string | null; birth_date: string | null };
@@ -27,7 +29,15 @@ export type Atendimento = { id: string; starts_at: string; ends_at: string; stat
 export type Imagem = { file_name: string; description: string | null; uploaded_at: string };
 export type Termo = { template_name: string; signed_at: string; revoked_at: string | null };
 
+export type AvaliacaoFisica = {
+  performed_at: string;
+  ortho_results: ResultadoOrto[];
+  strength_results: LinhaForca[];
+  notes: string | null;
+};
+
 export type Prontuario = {
+  avaliacaoFisica?: AvaliacaoFisica | null;
   anamnese: Anamnese | null;
   notas: Nota[];
   atendimentos: Atendimento[];
@@ -46,7 +56,7 @@ export type Campos = {
   destinatario: string;
 };
 
-export type BlocoId = "anamnese" | "avaliacao" | "exames" | "condutas" | "evolucao" | "termos";
+export type BlocoId = "anamnese" | "avaliacao" | "testes" | "exames" | "condutas" | "evolucao" | "termos";
 
 export type Secao = {
   id: string;
@@ -59,6 +69,7 @@ export type Secao = {
 export const BLOCOS: { id: BlocoId; nome: string; tipos: TipoDoc[] }[] = [
   { id: "anamnese", nome: "Anamnese", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
   { id: "avaliacao", nome: "Avaliação e exame físico", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
+  { id: "testes", nome: "Testes ortopédicos e força muscular", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
   { id: "exames", nome: "Exames e imagens anexados", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
   { id: "condutas", nome: "Sessões e procedimentos", tipos: ["relatorio", "parecer"] },
   { id: "evolucao", nome: "Evolução e escala de dor", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
@@ -285,6 +296,14 @@ function textoTermos(termos: Termo[]) {
     .join("\n");
 }
 
+function textoTestes(a: AvaliacaoFisica | null | undefined) {
+  if (!a) return "";
+  const partes = [textoOrto(a.ortho_results ?? []), textoForca(a.strength_results ?? [])].filter(Boolean);
+  if (!partes.length) return "";
+  return [`Avaliação realizada em ${dataBR(a.performed_at)}.`, ...partes, a.notes?.trim() ? `Observações: ${ponto(a.notes.trim())}` : ""]
+    .filter(Boolean).join("\n");
+}
+
 function intercorrencias(): Secao {
   return {
     id: "intercorrencias",
@@ -424,6 +443,7 @@ function gerarPericia(tipo: "parecer" | "laudo", p: Paciente, pr: Prontuario, pe
         "com classificação da funcionalidade segundo a Classificação Internacional de Funcionalidade, Incapacidade e Saúde (CIF/OMS).",
     },
     { id: "avaliacao", titulo: "Exame fisioterapêutico", bloco: "avaliacao", texto: exameFisico },
+    { id: "testes", titulo: "Testes ortopédicos e força muscular", bloco: "testes", texto: textoTestes(pr.avaliacaoFisica) },
     { id: "evolucao", titulo: "Evolução do quadro", bloco: "evolucao", texto: textoEvolucao(notas, false) },
   ];
   if (tipo === "parecer") {
@@ -507,6 +527,7 @@ export function gerarSecoes(
       },
       { id: "anamnese", titulo: "Histórico", bloco: "anamnese", texto: textoAnamnese(pr.anamnese, ["queixa", "inicio", "local", "tratamentos"]) },
       { id: "avaliacao", titulo: "Avaliação fisioterapêutica", bloco: "avaliacao", texto: textoAvaliacao(notas[0]) },
+      { id: "testes", titulo: "Testes ortopédicos e força muscular", bloco: "testes", texto: textoTestes(pr.avaliacaoFisica) },
       { id: "exames", titulo: "Exames", bloco: "exames", texto: textoExames(pr) },
       { id: "evolucao", titulo: "Evolução", bloco: "evolucao", texto: textoEvolucao(notas, false) },
       intercorrencias(),
@@ -526,6 +547,7 @@ export function gerarSecoes(
     { id: "identificacao", titulo: "Identificação", texto: ident },
     { id: "anamnese", titulo: "Anamnese", bloco: "anamnese", texto: textoAnamnese(pr.anamnese) },
     { id: "avaliacao", titulo: "Avaliação cinesiológica funcional", bloco: "avaliacao", texto: textoAvaliacao(notas[0]) },
+    { id: "testes", titulo: "Testes ortopédicos e força muscular", bloco: "testes", texto: textoTestes(pr.avaliacaoFisica) },
     { id: "exames", titulo: "Exames complementares", bloco: "exames", texto: textoExames(pr) },
     { id: "condutas", titulo: "Condutas realizadas", bloco: "condutas", texto: textoCondutas(notas) },
     { id: "evolucao", titulo: "Evolução", bloco: "evolucao", texto: textoEvolucao(notas, true) },
