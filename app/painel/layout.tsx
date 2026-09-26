@@ -116,7 +116,7 @@ export default async function PainelLayout({ children }: { children: React.React
         <Gate blocked={access === "blocked"}>{children}</Gate>
       </main>
 
-      
+      <a
         href={WHATSAPP_SUPORTE}
         target="_blank"
         rel="noopener noreferrer"
