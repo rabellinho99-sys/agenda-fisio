@@ -9,7 +9,7 @@ export default async function AgendaPage() {
   const clinicId = member!.clinic_id as string;
 
   const [{ data: clinic }, { data: professionals }, { data: services }] = await Promise.all([
-    supabase.from("clinics").select("timezone, slug").eq("id", clinicId).single(),
+    supabase.from("clinics").select("timezone, slug, name").eq("id", clinicId).single(),
     supabase.from("professionals").select("id, display_name").eq("clinic_id", clinicId).eq("active", true).order("sort_order"),
     supabase.from("services").select("id, name, duration_minutes, buffer_after_minutes, price_cents").eq("clinic_id", clinicId).eq("active", true).order("sort_order"),
   ]);
@@ -17,6 +17,7 @@ export default async function AgendaPage() {
   return (
     <Agenda
       clinicId={clinicId}
+      clinicName={clinic?.name ?? ""}
       tz={clinic?.timezone ?? "America/Sao_Paulo"}
       professionals={professionals ?? []}
       services={services ?? []}

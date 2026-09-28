@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { brl, fmtDateLong, fmtTime, toISODate } from "@/lib/format";
+import { LembreteWhatsApp } from "@/components/LembreteWhatsApp";
 
 type Prof = { id: string; display_name: string };
 type Svc = { id: string; name: string; duration_minutes: number; buffer_after_minutes: number; price_cents: number };
@@ -31,7 +32,9 @@ const CORES: Record<string, { dot: string; borda: string }> = {
   green: { dot: "bg-moss", borda: "border-l-moss" },
 };
 
-export function Agenda({ clinicId, tz, professionals, services }: { clinicId: string; tz: string; professionals: Prof[]; services: Svc[] }) {
+export function Agenda({ clinicId, clinicName = "", tz, professionals, services }: {
+  clinicId: string; clinicName?: string; tz: string; professionals: Prof[]; services: Svc[];
+}) {
   const supabase = createClient();
   const [dia, setDia] = useState(() => new Date());
   const [appts, setAppts] = useState<Appt[]>([]);
@@ -181,6 +184,18 @@ export function Agenda({ clinicId, tz, professionals, services }: { clinicId: st
                         {a.status === "pending" ? "Recusar" : "Cancelar"}
                       </button>
                     </div>
+                  )}
+                  {ativo && (
+                    <LembreteWhatsApp
+                      compacto
+                      telefone={a.patients?.phone ?? null}
+                      paciente={a.patients?.full_name ?? ""}
+                      clinica={clinicName || "clínica"}
+                      servico={a.services?.name}
+                      profissional={a.professionals?.display_name}
+                      inicio={a.starts_at}
+                      timezone={tz}
+                    />
                   )}
                 </div>
               </article>
