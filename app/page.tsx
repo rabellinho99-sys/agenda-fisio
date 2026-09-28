@@ -2,8 +2,6 @@ import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import { brl } from "@/lib/format";
 
-// Preços lidos da tabela plans. Atualiza a cada 5 minutos,
-// então mudar um preço no banco reflete no site sem novo deploy.
 export const revalidate = 300;
 
 type Plan = {
@@ -17,14 +15,21 @@ type Plan = {
   base_plan_code: string | null;
 };
 
-const FEATS: Record<string, string> = {
-  whatsapp: "Lembretes por WhatsApp",
-  packages: "Pacotes de sessões",
-  prontuario: "Prontuário e anamnese",
-  pix: "Pix no agendamento",
-  reports: "Relatórios",
-  api: "API e multiunidade",
-};
+const FEATS: { chave: string; texto: string; sempre?: boolean }[] = [
+  { chave: "agenda", texto: "Agenda e agendamento online com fotos dos serviços", sempre: true },
+  { chave: "prontuario", texto: "Prontuário: anamnese e evolução SOAP" },
+  { chave: "basicos", texto: "Declaração, atestado e QR de validação", sempre: true },
+  { chave: "whatsapp", texto: "WhatsApp automático (confirmação e lembretes)" },
+  { chave: "packages", texto: "Pacotes de sessões" },
+  { chave: "tcle", texto: "TCLE digital com assinatura" },
+  { chave: "imagens", texto: "Imagens e exames no prontuário" },
+  { chave: "documentos_clinicos", texto: "Relatório e encaminhamento automáticos" },
+  { chave: "testes", texto: "Testes ortopédicos e força com CIF" },
+  { chave: "pericia", texto: "Laudo pericial e parecer técnico" },
+  { chave: "financeiro", texto: "Financeiro completo com relatórios" },
+];
+
+const temFeat = (p: Plan, f: (typeof FEATS)[number]) => !!f.sempre || !!p.features?.[f.chave];
 
 async function carregarPlanos(): Promise<Plan[]> {
   try {
@@ -67,7 +72,8 @@ export default async function Home() {
           </h1>
           <p className="mt-6 max-w-lg text-lg text-ink/75">
             Agendamento online feito por fisioterapeuta para fisioterapeuta. Página pública
-            para o paciente marcar, prontuário com evolução SOAP, termo de consentimento digital e pacotes de sessões.
+            para o paciente marcar, prontuário com evolução SOAP, documentos com CIF e QR,
+            testes ortopédicos, WhatsApp automático e pacotes de sessões.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/entrar?modo=cadastro" className="btn-primary">Criar minha agenda grátis</Link>
@@ -79,11 +85,11 @@ export default async function Home() {
         </div>
 
         <div className="rounded-2xl bg-moss-deep p-6 text-white">
-          <p className="text-sm text-white/70">Como o paciente vê</p>
-          <p className="mt-2 text-2xl font-bold">Dr. Pedro Rabello</p>
-          <p className="text-white/70">Governador Valadares</p>
+          <p className="text-sm text-white/70">Como o paciente vê a sua página</p>
+          <p className="mt-2 text-2xl font-bold">Sua Clínica</p>
+          <p className="text-white/70">Sua cidade</p>
           <div className="mt-6 space-y-2">
-            {["Avaliação de dor crônica", "Sessão de PRP", "Mesoterapia"].map((s) => (
+            {["Avaliação fisioterapêutica", "Sessão de fisioterapia", "Pilates clínico"].map((s) => (
               <div key={s} className="flex items-center justify-between rounded-lg bg-white/10 px-4 py-3">
                 <span>{s}</span>
                 <span className="text-sm text-white/70">Escolher</span>
@@ -95,6 +101,9 @@ export default async function Home() {
               <span key={t} className="rounded-md bg-amber px-3 py-1.5 text-sm font-bold text-ink">{t}</span>
             ))}
           </div>
+          <p className="mt-4 text-xs text-white/50">
+            Cada clínica tem a sua página personalizada com nome, serviços e horários reais.
+          </p>
         </div>
       </section>
 
@@ -151,12 +160,15 @@ export default async function Home() {
                   </div>
 
                   <ul className="mt-5 flex-1 space-y-1.5 text-sm">
-                    <li className="text-ink/85">Agenda online e link público</li>
-                    {Object.entries(FEATS).map(([k, label]) => (
-                      <li key={k} className={p.features?.[k] ? "text-ink/85" : "text-ink/30 line-through"}>
-                        {label}
-                      </li>
-                    ))}
+                    {FEATS.map((f) => {
+                      const tem = temFeat(p, f);
+                      return (
+                        <li key={f.chave} className={`flex gap-2 ${tem ? "text-ink/85" : "text-ink/35"}`}>
+                          <span className="w-4 shrink-0 text-center" aria-hidden="true">{tem ? "✓" : "🔒"}</span>
+                          <span>{f.texto}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
 
                   <Link href="/entrar?modo=cadastro" className="btn-primary mt-6 w-full text-center">
@@ -172,6 +184,16 @@ export default async function Home() {
           </p>
         </section>
       )}
+
+      <footer className="border-t border-ink/10 py-8 text-sm text-ink/60">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <span>Agenda Fisio Pro · Rabello Academy · CNPJ 53.821.804/0001-18</span>
+          <div className="flex gap-4">
+            <Link href="/termos-de-uso" className="underline underline-offset-4">Termos de Uso</Link>
+            <Link href="/privacidade" className="underline underline-offset-4">Privacidade</Link>
+          </div>
+        </div>
+      </footer>
     </main>
   );
 }
