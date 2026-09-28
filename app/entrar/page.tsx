@@ -6,8 +6,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
 // Ao publicar uma nova versão dos Termos ou da Política, atualize a data aqui.
-const TERMOS_VERSAO = "2026-09-21";
-const PRIVACIDADE_VERSAO = "2026-09-21";
+const TERMOS_VERSAO = "2026-09-28";
+const PRIVACIDADE_VERSAO = "2026-09-28";
 
 function EntrarForm() {
   const params = useSearchParams();

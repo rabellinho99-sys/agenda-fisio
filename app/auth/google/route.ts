@@ -2,8 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 // Mesma versão usada em app/entrar/page.tsx
-const TERMOS_VERSAO = "2026-09-21";
-const PRIVACIDADE_VERSAO = "2026-09-21";
+const TERMOS_VERSAO = "2026-09-28";
+const PRIVACIDADE_VERSAO = "2026-09-28";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
