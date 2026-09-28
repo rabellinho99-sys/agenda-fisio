@@ -16,11 +16,12 @@ export default async function TestesPage() {
     .maybeSingle();
   if (!member) redirect("/onboarding");
 
-  const [{ data: pacientes }, { data: testes }, { data: grupos }, { data: cif }, { data: prof }] = await Promise.all([
+  const [{ data: pacientes }, { data: testes }, { data: grupos }, { data: movimentos }, { data: cif }, { data: prof }] = await Promise.all([
     supabase.from("patients").select("id, full_name, cpf").eq("clinic_id", member.clinic_id).order("full_name"),
     supabase.from("ortho_tests").select("code, name, region, how, suggests, sort").order("sort"),
     supabase.from("muscle_groups").select("code, name, region, cif_code, sort").order("sort"),
-    supabase.from("cif_codes").select("code, title").in("code", ["b7300", "b7301", "b7305"]),
+    supabase.from("joint_movements").select("code, name, region, normal_rom, cif_code, sort").order("sort"),
+    supabase.from("cif_codes").select("code, title").in("code", ["b7300", "b7301", "b7305", "b7100", "b7101"]),
     supabase.from("professionals").select("id").eq("clinic_id", member.clinic_id).eq("user_id", user.id).limit(1).maybeSingle(),
   ]);
 
@@ -33,6 +34,7 @@ export default async function TestesPage() {
       pacientes={pacientes ?? []}
       testes={testes ?? []}
       grupos={grupos ?? []}
+      movimentos={movimentos ?? []}
       titulosCif={titulosCif}
     />
   );

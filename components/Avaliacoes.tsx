@@ -13,6 +13,12 @@ import {
   type Qualificador,
   type ResultadoOrto,
 } from "@/lib/forca";
+import {
+  classificarGonio,
+  cifDaGoniometria,
+  CLASSES as CLASSES_G,
+  type LinhaGonio,
+} from "@/lib/goniometria";
 
 type Paciente = { id: string; full_name: string; cpf: string | null };
 type Teste = { code: string; name: string; region: string; how: string; suggests: string; sort: number };
@@ -22,9 +28,12 @@ type Avaliacao = {
   performed_at: string;
   ortho_results: ResultadoOrto[];
   strength_results: LinhaForca[];
+  gonio_results: LinhaGonio[];
   cif_items: CifItem[];
   notes: string | null;
 };
+
+type Movimento = { code: string; name: string; region: string; normal_rom: number; cif_code: string; sort: number };
 
 type Props = {
   clinicId: string;
@@ -32,6 +41,7 @@ type Props = {
   pacientes: Paciente[];
   testes: Teste[];
   grupos: Grupo[];
+  movimentos: Movimento[];
   titulosCif: Record<string, string>;
 };
 
@@ -64,7 +74,7 @@ const RESULTADOS: { v: ResultadoOrto["d"]; rotulo: string }[] = [
   { v: "inconclusivo", rotulo: "Inconclusivo" },
 ];
 
-export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos, titulosCif }: Props) {
+export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos, movimentos, titulosCif }: Props) {
   const supabase = createClient();
   const [pacienteId, setPacienteId] = useState("");
   const [busca, setBusca] = useState("");
@@ -80,6 +90,8 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
   const [grupoNovo, setGrupoNovo] = useState("");
   const [metodoPadrao, setMetodoPadrao] = useState<Metodo>("oxford");
   const [notas, setNotas] = useState("");
+  const [gonio, setGonio] = useState<LinhaGonio[]>([]);
+  const [movNovo, setMovNovo] = useState("");
   const [atualizarCif, setAtualizarCif] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
@@ -116,6 +128,7 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
       setRegioesOrto([]);
       setOrto({});
       setForca([]);
+      setGonio([]);
       setNotas("");
       return;
     }
@@ -126,6 +139,7 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
     setOrto(mapa);
     setRegioesOrto([...new Set((a.ortho_results ?? []).map((r) => r.region))]);
     setForca(a.strength_results ?? []);
+    setGonio(a.gonio_results ?? []);
     setNotas(a.notes ?? "");
   }
 
@@ -134,6 +148,20 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
       const atual = o[t.code] ?? { code: t.code, name: t.name, region: t.region, d: "", e: "", obs: "" };
       return { ...o, [t.code]: { ...atual, [lado]: valor } as ResultadoOrto };
     });
+  }
+
+  function adicionarMovimento(code: string) {
+    const m = movimentos.find((x) => x.code === code);
+    if (!m) return;
+    setGonio((g) => [
+      ...g,
+      { id: `g-${Date.now()}`, code: m.code, name: m.name, region: m.region, cif_code: m.cif_code, normal_rom: m.normal_rom, d: "", e: "", obs: "" },
+    ]);
+    setMovNovo("");
+  }
+
+  function mudarGonio(id: string, m: Partial<LinhaGonio>) {
+    setGonio((g) => g.map((l) => (l.id === id ? { ...l, ...m } : l)));
   }
 
   function adicionarGrupo(code: string) {
@@ -160,7 +188,16 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
     setForca((f) => f.map((l) => (l.id === id ? { ...l, ...m } : l)));
   }
 
-  const cifGerada = useMemo(() => cifDaForca(forca, titulosCif), [forca, titulosCif]);
+  const cifForca = useMemo(() => cifDaForca(forca, titulosCif), [forca, titulosCif]);
+  const cifGonio = useMemo(() => cifDaGoniometria(gonio, titulosCif), [gonio, titulosCif]);
+  const cifGerada = useMemo(() => {
+    const mapa = new Map<string, { code: string; title: string; component: "b"; q: string }>();
+    for (const i of [...cifForca, ...cifGonio]) {
+      const atual = mapa.get(i.code);
+      if (!atual || Number(i.q) > Number(atual.q)) mapa.set(i.code, i);
+    }
+    return [...mapa.values()].sort((a, b) => a.code.localeCompare(b.code));
+  }, [cifForca, cifGonio]);
   const ortoPreenchidos = Object.values(orto).filter((r) => r.d || r.e);
 
   async function salvar() {
@@ -174,6 +211,7 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
       performed_at: new Date(`${data}T12:00:00-03:00`).toISOString(),
       ortho_results: ortoPreenchidos,
       strength_results: forca.filter((l) => classificar(l)),
+      gonio_results: gonio.filter((l) => classificarGonio(l)),
       cif_items: cifGerada,
       notes: notas.trim() || null,
     };
@@ -274,7 +312,7 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
                 <li key={a.id} className="flex flex-wrap items-center gap-3 py-3 text-sm">
                   <span className="font-semibold">{dataBR(a.performed_at)}</span>
                   <span className="text-ink/60">
-                    {a.ortho_results.length} testes, {a.strength_results.length} grupos musculares
+                    {a.ortho_results.length} testes, {a.strength_results.length} força, {(a.gonio_results ?? []).length} goniometria
                   </span>
                   <span className="flex flex-wrap gap-1">
                     {a.cif_items.map((i) => (
@@ -458,6 +496,71 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
               })}
             </div>
 
+          </section>
+
+          {/* goniometria */}
+          <section className="rounded-xl bg-white p-4">
+            <p className="text-base font-extrabold">Goniometria (amplitude de movimento)</p>
+            <p className="mt-1 text-xs text-ink/60">
+              Informe os graus medidos de cada lado. O déficit é calculado em relação ao valor normal de referência,
+              e classificado nas mesmas faixas da CIF: 0 a 4% sem deficiência, 5 a 24% leve, 25 a 49% moderada, 50 a 95% grave, 96 a 100% completa.
+            </p>
+            <div className="mt-3"><Legenda /></div>
+
+            <div className="mt-4 min-w-60 flex-1">
+              <label className="label" htmlFor="movimento">Adicionar movimento articular</label>
+              <select id="movimento" className="field w-full" value={movNovo} onChange={(e) => adicionarMovimento(e.target.value)}>
+                <option value="">Escolha...</option>
+                {REGIOES_TESTE.map((r) => (
+                  <optgroup key={r.id} label={r.nome}>
+                    {movimentos.filter((m) => m.region === r.id).map((m) => (
+                      <option key={m.code} value={m.code}>{m.name} (ref. {m.normal_rom}°)</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {gonio.map((l) => {
+                const c = classificarGonio(l);
+                return (
+                  <div key={l.id} className="rounded-lg border-l-4 bg-paper p-3 text-sm"
+                    style={{ borderLeftColor: c ? CLASSES[c.q].cor : "transparent" }}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="flex-1 font-semibold">{l.name}</span>
+                      <span className="text-xs text-ink/50">ref. {l.normal_rom}°</span>
+                      <button className="text-danger" onClick={() => setGonio(gonio.filter((x) => x.id !== l.id))}>Remover</button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-end gap-3">
+                      <label className="text-xs">Direito (°)
+                        <input type="number" step="1" min={0} max={360} className="field ml-1 w-20 text-sm" value={l.d}
+                          onChange={(e) => mudarGonio(l.id, { d: e.target.value })} />
+                      </label>
+                      <label className="text-xs">Esquerdo (°)
+                        <input type="number" step="1" min={0} max={360} className="field ml-1 w-20 text-sm" value={l.e}
+                          onChange={(e) => mudarGonio(l.id, { e: e.target.value })} />
+                      </label>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      {c ? (
+                        <>
+                          <Selo q={c.q} />
+                          {c.deficit_d !== null && c.deficit_d > 0 && <span>Déficit D {c.deficit_d}%</span>}
+                          {c.deficit_e !== null && c.deficit_e > 0 && <span>Déficit E {c.deficit_e}%</span>}
+                          <span className="font-mono text-ink/60">CIF {l.cif_code}.{c.q}</span>
+                        </>
+                      ) : (
+                        <span className="text-ink/60">Preencha ao menos um lado.</span>
+                      )}
+                    </div>
+                    <input className="field mt-2 w-full text-sm" placeholder="Observação (opcional)" value={l.obs}
+                      onChange={(e) => mudarGonio(l.id, { obs: e.target.value })} />
+                  </div>
+                );
+              })}
+            </div>
+
             {cifGerada.length > 0 && (
               <div className="mt-4 rounded-lg border border-ink/10 p-3">
                 <p className="text-sm font-semibold">Codificação CIF gerada</p>
@@ -488,7 +591,7 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
             {msg && <p role="status" className={`mr-auto text-sm ${msg.tipo === "erro" ? "text-danger" : ""}`}>{msg.texto}</p>}
             {editando !== "nova" && <button className="text-sm text-danger" onClick={excluir}>Excluir</button>}
             <button className="btn-primary" onClick={salvar}
-              disabled={salvando || (ortoPreenchidos.length === 0 && !forca.some((l) => classificar(l)))}>
+              disabled={salvando || (ortoPreenchidos.length === 0 && !forca.some((l) => classificar(l)) && !gonio.some((l) => classificarGonio(l)))}>
               {salvando ? "Salvando" : "Salvar avaliação"}
             </button>
           </div>

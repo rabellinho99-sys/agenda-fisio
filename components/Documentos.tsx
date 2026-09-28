@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CifSeletor } from "@/components/CifSeletor";
+import { PericiaCampos } from "@/components/PericiaCampos";
+import { INFO_RECURSO, temRecurso, type Recurso, type Recursos } from "@/lib/planos";
 import {
   codigoComQualificador,
   descricaoQualificador,
@@ -10,10 +12,32 @@ import {
   type CifCodigo,
   type CifItem,
 } from "@/lib/cif";
+import {
+  BLOCOS,
+  CAMPOS_INICIAIS,
+  FUNCOES,
+  PERICIA_INICIAL,
+  dataBR,
+  gerarSecoes,
+  hojeISO,
+  horaBR,
+  isoParaBR,
+  type BlocoId,
+  type Campos,
+  type Paciente,
+  type Pericia,
+  type Prontuario,
+  type Secao,
+  type TipoDoc,
+} from "@/lib/documentos";
 
-export type TipoDoc = "declaracao" | "atestado" | "relatorio" | "encaminhamento";
-
-type Paciente = { id: string; full_name: string; cpf: string | null; birth_date: string | null };
+type Corpo = {
+  secoes: Secao[];
+  cid?: string | null;
+  cid_autorizado?: boolean;
+  pericia?: Pericia;
+  assinatura_rotulo?: string;
+};
 
 type DocLista = {
   id: string;
@@ -27,226 +51,57 @@ type DocLista = {
   patients: { full_name: string } | null;
 };
 
-type Secao = { titulo: string; texto: string };
-type Corpo = { secoes: Secao[]; cid?: string | null; cid_autorizado?: boolean };
-
 type Props = {
+  recursos: Recursos;
+  clinicId: string;
   pacientes: Paciente[];
   documentos: DocLista[];
   catalogo: CifCodigo[];
   cidadeClinica: string;
 };
 
-type Nota = {
-  created_at: string;
-  subjective: string | null;
-  objective: string | null;
-  assessment: string | null;
-  plan: string | null;
-  procedures: unknown;
-  pain_before: number | null;
-  pain_after: number | null;
-};
-
-type Anamnese = {
-  created_at: string;
-  answers: Record<string, unknown> | null;
-  fields_snapshot: { key: string; label: string; type?: string }[] | null;
-};
-
-type Atendimento = { id: string; starts_at: string; ends_at: string; status: string };
-
-type Prontuario = {
-  anamnese: Anamnese | null;
-  notas: Nota[];
-  atendimentos: Atendimento[];
-  cif: CifItem[];
-};
-
 const TIPOS: { id: TipoDoc; nome: string; descricao: string }[] = [
   { id: "declaracao", nome: "Declaração de comparecimento", descricao: "Confirma presença no atendimento, sem informação clínica." },
   { id: "atestado", nome: "Atestado", descricao: "Afastamento ou aptidão funcional por um período." },
-  { id: "relatorio", nome: "Relatório fisioterapêutico", descricao: "Resumo do acompanhamento, com evolução e condutas." },
+  { id: "relatorio", nome: "Relatório fisioterapêutico", descricao: "Resumo do acompanhamento, montado a partir do prontuário." },
   { id: "encaminhamento", nome: "Encaminhamento", descricao: "Para médico ou outro profissional, com resumo clínico." },
+  { id: "laudo", nome: "Laudo pericial fisioterapêutico", descricao: "Como perito(a) do juízo: processo, exame, nexo, conclusão e quesitos." },
+  { id: "parecer", nome: "Parecer técnico fisioterapêutico", descricao: "Como assistente técnico(a) ou a pedido particular, com quesitos." },
 ];
 
-const TZ = "America/Sao_Paulo";
-const dataBR = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { timeZone: TZ });
-const horaBR = (iso: string) =>
-  new Date(iso).toLocaleTimeString("pt-BR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
-const hojeISO = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
-const isoParaBR = (d: string) => (d ? d.split("-").reverse().join("/") : "");
-
-function idade(nasc: string | null) {
-  if (!nasc) return null;
-  const n = new Date(nasc + "T12:00:00");
-  const h = new Date();
-  let a = h.getFullYear() - n.getFullYear();
-  if (h.getMonth() < n.getMonth() || (h.getMonth() === n.getMonth() && h.getDate() < n.getDate())) a--;
-  return a;
-}
-
-function textoResposta(v: unknown) {
-  if (v === null || v === undefined || v === "") return "";
-  if (typeof v === "boolean") return v ? "sim" : "não";
-  return String(v).trim();
-}
-
-function nomesProcedimentos(p: unknown): string[] {
-  if (!p) return [];
-  const arr = Array.isArray(p) ? p : [p];
-  return arr
-    .map((x) => {
-      if (typeof x === "string") return x;
-      if (x && typeof x === "object") {
-        const o = x as Record<string, unknown>;
-        return String(o.name ?? o.nome ?? o.label ?? o.procedure ?? o.procedimento ?? "");
-      }
-      return "";
-    })
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-type Campos = {
-  atendimentoId: string;
-  dias: string;
-  inicio: string;
-  atividade: string;
-  destino: string;
-  especialidade: string;
-  motivo: string;
-  destinatario: string;
+const TODOS_BLOCOS: Record<BlocoId, boolean> = {
+  anamnese: true, avaliacao: true, testes: true, exames: true, condutas: true, evolucao: true, termos: true,
 };
 
-function identificacao(p: Paciente) {
-  const partes = [p.full_name];
-  if (p.cpf) partes.push(`inscrito(a) no CPF sob o nº ${p.cpf}`);
-  return partes.join(", ");
-}
-
-function gerarSecoes(tipo: TipoDoc, p: Paciente, pr: Prontuario, c: Campos): Secao[] {
-  const at = pr.atendimentos.find((a) => a.id === c.atendimentoId) ?? pr.atendimentos[0];
-  const dataAt = at ? dataBR(at.starts_at) : isoParaBR(hojeISO());
-  const notas = pr.notas;
-  const primeira = notas[0];
-  const ultima = notas[notas.length - 1];
-  const resp = pr.anamnese?.answers ?? {};
-  const anos = idade(p.birth_date);
-
-  if (tipo === "declaracao") {
-    const periodo = at ? `, no período das ${horaBR(at.starts_at)} às ${horaBR(at.ends_at)}` : "";
-    return [{
-      titulo: "",
-      texto: `Declaro, para os devidos fins, que ${identificacao(p)}, compareceu a atendimento fisioterapêutico no dia ${dataAt}${periodo}.`,
-    }];
-  }
-
-  if (tipo === "atestado") {
-    const n = Number(c.dias) || 1;
-    return [{
-      titulo: "",
-      texto:
-        `Atesto, para os devidos fins, que ${identificacao(p)}, esteve sob meus cuidados fisioterapêuticos em ${dataAt} ` +
-        `e, em razão de sua condição cinesiológica funcional, necessita de afastamento de suas atividades ${c.atividade || "laborais"} ` +
-        `por ${n} ${n === 1 ? "dia" : "dias"}, a partir de ${isoParaBR(c.inicio || hojeISO())}.`,
-    }];
-  }
-
-  const queixa = textoResposta(resp["queixa"]);
-  const historicoCampos = ["queixa", "inicio", "local", "tratamentos", "exames", "cirurgias"];
-  const rotulos = new Map((pr.anamnese?.fields_snapshot ?? []).map((f) => [f.key, f.label]));
-  const historico = historicoCampos
-    .map((k) => {
-      const v = textoResposta(resp[k]);
-      return v ? `${rotulos.get(k) ?? k}: ${v}.` : "";
-    })
-    .filter(Boolean)
-    .join("\n");
-
-  const procedimentos = Array.from(new Set(notas.flatMap((n) => nomesProcedimentos(n.procedures))));
-  const periodoTrat = primeira
-    ? `Foram realizadas ${notas.length} ${notas.length === 1 ? "sessão" : "sessões"}, de ${dataBR(primeira.created_at)} a ${dataBR(ultima.created_at)}.`
-    : "";
-
-  const evaIni = primeira?.pain_before;
-  const evaFim = ultima?.pain_after ?? ultima?.pain_before;
-  const evolucaoDor =
-    evaIni !== null && evaIni !== undefined && evaFim !== null && evaFim !== undefined
-      ? `Intensidade da dor pela Escala Visual Analógica (EVA, 0 a 10): ${evaIni} no início do tratamento e ${evaFim} na sessão mais recente.`
-      : "";
-
-  if (tipo === "encaminhamento") {
-    const destino = [c.destino, c.especialidade].filter(Boolean).join(", ");
-    const inicioAcomp = primeira ? `, em acompanhamento fisioterapêutico desde ${dataBR(primeira.created_at)}` : "";
-    return [
-      { titulo: "", texto: destino ? `Ao(À) ${destino}.` : "Ao(À) colega." },
-      {
-        titulo: "",
-        texto:
-          `Encaminho o(a) paciente ${p.full_name}${anos !== null ? `, ${anos} anos` : ""}${inicioAcomp}, ` +
-          `para ${c.motivo || "avaliação e conduta"}.`,
-      },
-      {
-        titulo: "Resumo clínico",
-        texto: [queixa && `Queixa principal: ${queixa}.`, ultima?.assessment, evolucaoDor].filter(Boolean).join("\n"),
-      },
-      { titulo: "", texto: "Coloco-me à disposição para troca de informações sobre o caso." },
-    ];
-  }
-
-  // relatório
-  const ident = [
-    `Paciente: ${p.full_name}.`,
-    p.cpf ? `CPF: ${p.cpf}.` : "",
-    p.birth_date ? `Data de nascimento: ${isoParaBR(p.birth_date)}${anos !== null ? ` (${anos} anos)` : ""}.` : "",
-  ].filter(Boolean).join(" ");
-
-  return [
-    { titulo: "", texto: c.destinatario ? `A(o) ${c.destinatario}.` : "A quem possa interessar." },
-    { titulo: "Identificação", texto: ident },
-    { titulo: "Histórico clínico", texto: historico },
-    {
-      titulo: "Avaliação cinesiológica funcional",
-      texto: [primeira?.objective, primeira?.assessment].filter(Boolean).join("\n"),
-    },
-    {
-      titulo: "Condutas realizadas",
-      texto: [periodoTrat, procedimentos.length ? `Procedimentos: ${procedimentos.join(", ")}.` : ""].filter(Boolean).join("\n"),
-    },
-    {
-      titulo: "Evolução",
-      texto: [evolucaoDor, notas.length > 1 ? ultima?.assessment : ""].filter(Boolean).join("\n"),
-    },
-    { titulo: "Conclusão e recomendações", texto: "" },
-  ];
-}
-
-const camposIniciais: Campos = {
-  atendimentoId: "",
-  dias: "1",
-  inicio: "",
-  atividade: "laborais",
-  destino: "",
-  especialidade: "",
-  motivo: "",
-  destinatario: "",
+const RECURSO_DO_TIPO: Partial<Record<TipoDoc, Recurso>> = {
+  relatorio: "documentos_clinicos",
+  encaminhamento: "documentos_clinicos",
+  laudo: "pericia",
+  parecer: "pericia",
 };
 
-export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: Props) {
+export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, documentos, catalogo, cidadeClinica }: Props) {
   const supabase = createClient();
   const [modo, setModo] = useState<"lista" | "novo">("lista");
+  const [pacientes, setPacientes] = useState<Paciente[]>(pacientesIniciais);
+  const [novoPac, setNovoPac] = useState<{ nome: string; cpf: string; nasc: string; tel: string } | null>(null);
+  const [salvandoPac, setSalvandoPac] = useState(false);
+  const [pericia, setPericia] = useState<Pericia>(PERICIA_INICIAL);
   const [filtro, setFiltro] = useState("");
 
-  // editor
   const [pacienteId, setPacienteId] = useState("");
   const [buscaPaciente, setBuscaPaciente] = useState("");
   const [tipo, setTipo] = useState<TipoDoc>("declaracao");
-  const [campos, setCampos] = useState<Campos>(camposIniciais);
+  const [campos, setCampos] = useState<Campos>(CAMPOS_INICIAIS);
   const [prontuario, setProntuario] = useState<Prontuario | null>(null);
+  const [cifSalva, setCifSalva] = useState<CifItem[]>([]);
   const [carregandoPront, setCarregandoPront] = useState(false);
-  const [secoes, setSecoes] = useState<Secao[]>([]);
-  const [editado, setEditado] = useState(false);
+
+  // blocos do prontuário ligados, textos editados à mão e partes extras
+  const [blocos, setBlocos] = useState<Record<BlocoId, boolean>>(TODOS_BLOCOS);
+  const [editadas, setEditadas] = useState<Record<string, Secao>>({});
+  const [extras, setExtras] = useState<Secao[]>([]);
+
   const [cif, setCif] = useState<CifItem[]>([]);
   const [usarCif, setUsarCif] = useState(false);
   const [cid, setCid] = useState("");
@@ -271,35 +126,45 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
     );
   }, [documentos, filtro]);
 
-  // carrega o prontuário do paciente escolhido
+  // carrega tudo o que existe no prontuário do paciente
   useEffect(() => {
     if (!pacienteId) { setProntuario(null); return; }
     let ativo = true;
     (async () => {
       setCarregandoPront(true);
-      const [an, no, at, ci] = await Promise.all([
+      const [an, no, at, im, te, ci, af] = await Promise.all([
         supabase.from("anamnesis_responses").select("created_at, answers, fields_snapshot")
           .eq("patient_id", pacienteId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("clinical_notes")
-          .select("created_at, subjective, objective, assessment, plan, procedures, pain_before, pain_after")
+          .select("created_at, subjective, objective, assessment, plan, procedures, pain_before, pain_after, addendum")
           .eq("patient_id", pacienteId).order("created_at", { ascending: true }),
         supabase.from("appointments").select("id, starts_at, ends_at, status")
           .eq("patient_id", pacienteId).lte("starts_at", new Date().toISOString())
           .not("status", "in", "(cancelled_by_patient,cancelled_by_clinic,no_show,pending)")
           .order("starts_at", { ascending: false }).limit(30),
+        supabase.from("patient_images").select("file_name, description, uploaded_at")
+          .eq("patient_id", pacienteId).order("uploaded_at", { ascending: true }),
+        supabase.from("consents").select("template_name, signed_at, revoked_at")
+          .eq("patient_id", pacienteId).order("signed_at", { ascending: true }),
         supabase.from("patient_cif").select("items")
           .eq("patient_id", pacienteId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        supabase.from("physical_assessments").select("performed_at, ortho_results, strength_results, gonio_results, notes")
+          .eq("patient_id", pacienteId).order("performed_at", { ascending: false }).limit(1).maybeSingle(),
       ]);
       if (!ativo) return;
       const pr: Prontuario = {
-        anamnese: (an.data as Anamnese | null) ?? null,
-        notas: (no.data as Nota[] | null) ?? [],
-        atendimentos: (at.data as Atendimento[] | null) ?? [],
-        cif: ((ci.data?.items as CifItem[] | undefined) ?? []),
+        avaliacaoFisica: (af.data as Prontuario["avaliacaoFisica"]) ?? null,
+        anamnese: (an.data as Prontuario["anamnese"]) ?? null,
+        notas: (no.data as Prontuario["notas"]) ?? [],
+        atendimentos: (at.data as Prontuario["atendimentos"]) ?? [],
+        imagens: (im.data as Prontuario["imagens"]) ?? [],
+        termos: (te.data as Prontuario["termos"]) ?? [],
       };
       setProntuario(pr);
+      const salva = (ci.data?.items as CifItem[] | undefined) ?? [];
+      setCifSalva(salva);
       if (!substitui) {
-        setCif(pr.cif);
+        setCif(salva);
         setCampos((c) => ({ ...c, atendimentoId: pr.atendimentos[0]?.id ?? "" }));
       }
       setCarregandoPront(false);
@@ -308,20 +173,31 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pacienteId]);
 
-  // gera o texto automaticamente enquanto o profissional não editar à mão
-  useEffect(() => {
-    if (!paciente || !prontuario || editado) return;
-    setSecoes(gerarSecoes(tipo, paciente, prontuario, campos));
-  }, [tipo, paciente, prontuario, campos, editado]);
+  // partes geradas automaticamente, com as edições do profissional por cima
+  const geradas = useMemo(
+    () => (paciente && prontuario ? gerarSecoes(tipo, paciente, prontuario, campos, pericia) : []),
+    [tipo, paciente, prontuario, campos, pericia]
+  );
+  const secoes: Secao[] = useMemo(() => {
+    const base = geradas
+      .filter((s) => !s.bloco || blocos[s.bloco])
+      .map((s) => editadas[s.id] ?? s);
+    return [...base, ...extras];
+  }, [geradas, blocos, editadas, extras]);
 
-  function novoDocumento() {
-    setModo("novo");
+  const blocosDoTipo = BLOCOS.filter((b) => b.tipos.includes(tipo));
+  const textoDoBloco = (id: BlocoId) => geradas.find((s) => s.bloco === id)?.texto ?? "";
+
+  function limparEditor() {
     setPacienteId("");
     setBuscaPaciente("");
     setTipo("declaracao");
-    setCampos(camposIniciais);
-    setSecoes([]);
-    setEditado(false);
+    setCampos(CAMPOS_INICIAIS);
+    setPericia(PERICIA_INICIAL);
+    setNovoPac(null);
+    setBlocos(TODOS_BLOCOS);
+    setEditadas({});
+    setExtras([]);
     setCif([]);
     setUsarCif(false);
     setCid("");
@@ -330,48 +206,113 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
     setErro(null);
   }
 
+  function novoDocumento() {
+    limparEditor();
+    setModo("novo");
+  }
+
   function novaVersao(d: DocLista) {
+    limparEditor();
     setModo("novo");
     setSubstitui(d);
     setPacienteId(d.patient_id);
-    setBuscaPaciente("");
     setTipo(d.doc_type);
-    setSecoes(d.body?.secoes ?? []);
-    setEditado(true);
+    const anteriores = d.body?.secoes ?? [];
+    const ed: Record<string, Secao> = {};
+    const ex: Secao[] = [];
+    const ids = new Set(anteriores.map((s) => s.id));
+    for (const s of anteriores) {
+      if (s.id?.startsWith("extra-")) ex.push(s);
+      else if (s.id) ed[s.id] = s;
+    }
+    setEditadas(ed);
+    setExtras(ex);
+    setBlocos({
+      anamnese: ids.has("anamnese"), avaliacao: ids.has("avaliacao"), testes: ids.has("testes"), exames: ids.has("exames"),
+      condutas: ids.has("condutas"), evolucao: ids.has("evolucao"), termos: ids.has("termos"),
+    });
+    if (d.body?.pericia) setPericia({ ...PERICIA_INICIAL, ...d.body.pericia });
     setCif(d.cif ?? []);
     setUsarCif((d.cif ?? []).length > 0);
     setCid(d.body?.cid ?? "");
     setCidAutorizado(!!d.body?.cid_autorizado);
-    setErro(null);
   }
 
-  function refazer() {
-    if (editado && !window.confirm("Refazer o texto a partir do prontuário? Suas edições no texto serão perdidas.")) return;
-    setEditado(false);
-    if (paciente && prontuario) setSecoes(gerarSecoes(tipo, paciente, prontuario, campos));
+  function editar(s: Secao, mudanca: Partial<Secao>) {
+    if (s.id.startsWith("extra-")) {
+      setExtras((xs) => xs.map((x) => (x.id === s.id ? { ...x, ...mudanca } : x)));
+    } else {
+      setEditadas((e) => ({ ...e, [s.id]: { ...s, ...mudanca } }));
+    }
   }
 
-  function editarSecao(i: number, mudanca: Partial<Secao>) {
-    setEditado(true);
-    setSecoes((s) => s.map((x, j) => (j === i ? { ...x, ...mudanca } : x)));
+  function restaurar(id: string) {
+    setEditadas((e) => {
+      const n = { ...e };
+      delete n[id];
+      return n;
+    });
+  }
+
+  function adicionarParte() {
+    setExtras((xs) => [...xs, { id: `extra-${Date.now()}`, titulo: "Nova parte", texto: "" }]);
   }
 
   const tituloDoc = TIPOS.find((t) => t.id === tipo)?.nome ?? "Documento";
-  const mostraClinico = tipo === "atestado" || tipo === "relatorio" || tipo === "encaminhamento";
+  const ehPericia = tipo === "parecer" || tipo === "laudo";
+  const mostraClinico = tipo !== "declaracao";
+
+  async function cadastrarPaciente() {
+    if (!novoPac) return;
+    const tel = novoPac.tel.replace(/\D/g, "");
+    if (novoPac.nome.trim().length < 3) return setErro("Informe o nome completo.");
+    if (tel.length < 10) return setErro("Informe um telefone com DDD.");
+    setErro(null);
+    setSalvandoPac(true);
+    const { data, error } = await supabase
+      .from("patients")
+      .insert({
+        clinic_id: clinicId,
+        full_name: novoPac.nome.trim(),
+        cpf: novoPac.cpf.trim() || null,
+        birth_date: novoPac.nasc || null,
+        phone: tel,
+        whatsapp_opt_in: false,
+      })
+      .select("id, full_name, cpf, birth_date")
+      .single();
+    setSalvandoPac(false);
+    if (error) {
+      return setErro(
+        error.message.includes("duplicate")
+          ? "Já existe um paciente com esse telefone. Busque pelo nome na lista."
+          : `Não foi possível cadastrar: ${error.message}`
+      );
+    }
+    setPacientes((ps) => [...ps, data as Paciente].sort((a, b) => a.full_name.localeCompare(b.full_name)));
+    setPacienteId((data as Paciente).id);
+    setNovoPac(null);
+  }
 
   async function emitir() {
     setErro(null);
     if (!paciente) return setErro("Escolha o paciente.");
-    if (!secoes.some((s) => s.texto.trim())) return setErro("O documento está sem texto.");
+    const finais = secoes.filter((s) => s.texto.trim());
+    if (!finais.length) return setErro("O documento está sem texto.");
     if (cid.trim() && !cidAutorizado) {
       return setErro("Para incluir o CID, confirme que o paciente autorizou. Ou apague o campo CID.");
     }
+    const pendentes = finais.some((s) => /\[(responder|solicitante)\]/.test(s.texto));
+    if (pendentes && !window.confirm("Há quesitos sem resposta ou campos marcados entre colchetes. Emitir mesmo assim?")) return;
     if (!window.confirm("Depois de emitido, o documento não pode ser alterado (só substituído por nova versão). Emitir agora?")) return;
     setEmitindo(true);
     const corpo: Corpo = {
-      secoes: secoes.filter((s) => s.texto.trim() || s.titulo.trim()),
+      secoes: finais.map(({ id, titulo, texto }) => ({ id, titulo, texto })),
       cid: cid.trim() || null,
       cid_autorizado: cid.trim() ? cidAutorizado : false,
+      ...(ehPericia
+        ? { pericia, assinatura_rotulo: FUNCOES.find((f) => f.id === pericia.funcao)?.assinatura ?? "Fisioterapeuta" }
+        : {}),
     };
     const { data, error } = await supabase.rpc("issue_document", {
       p_patient: paciente.id,
@@ -394,7 +335,7 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
           <div>
             <h1 className="h-title text-2xl">Documentos</h1>
             <p className="mt-1 text-sm text-ink/70">
-              Declarações, atestados, relatórios e encaminhamentos com seus dados e os do prontuário.
+              Declarações, atestados, relatórios e encaminhamentos montados a partir do prontuário.
             </p>
           </div>
           <button className="btn-primary" onClick={novoDocumento}>Novo documento</button>
@@ -430,7 +371,7 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
                     <td className="px-3 py-2">{dataBR(d.issued_at)}</td>
                     <td className="px-3 py-2">{d.patients?.full_name ?? ""}</td>
                     <td className="px-3 py-2">{d.title}</td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="whitespace-nowrap px-3 py-2 text-right">
                       <a href={`/documento/${d.id}`} target="_blank" className="font-semibold underline underline-offset-4">
                         Abrir
                       </a>
@@ -465,7 +406,7 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
             <span className="font-semibold">{paciente.full_name}</span>
             {paciente.cpf && <span className="text-ink/60">CPF {paciente.cpf}</span>}
             {!substitui && (
-              <button className="underline underline-offset-4" onClick={() => { setPacienteId(""); setEditado(false); }}>
+              <button className="underline underline-offset-4" onClick={() => { setPacienteId(""); setEditadas({}); setExtras([]); }}>
                 Trocar
               </button>
             )}
@@ -480,12 +421,53 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
               onChange={(e) => setBuscaPaciente(e.target.value)}
               autoFocus
             />
+            {!novoPac ? (
+              <button
+                className="mt-2 text-sm font-semibold underline underline-offset-4"
+                onClick={() => setNovoPac({ nome: buscaPaciente, cpf: "", nasc: "", tel: "" })}
+              >
+                Cadastrar novo paciente ou periciando
+              </button>
+            ) : (
+              <div className="mt-3 grid gap-3 rounded-lg bg-paper p-3 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <label className="label" htmlFor="np-nome">Nome completo</label>
+                  <input id="np-nome" className="field w-full" value={novoPac.nome}
+                    onChange={(e) => setNovoPac({ ...novoPac, nome: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label" htmlFor="np-tel">Telefone com DDD</label>
+                  <input id="np-tel" className="field w-full" value={novoPac.tel} placeholder="(33) 99999-9999"
+                    onChange={(e) => setNovoPac({ ...novoPac, tel: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label" htmlFor="np-cpf">CPF</label>
+                  <input id="np-cpf" className="field w-full" value={novoPac.cpf}
+                    onChange={(e) => setNovoPac({ ...novoPac, cpf: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label" htmlFor="np-nasc">Data de nascimento</label>
+                  <input id="np-nasc" type="date" className="field w-full" value={novoPac.nasc}
+                    onChange={(e) => setNovoPac({ ...novoPac, nasc: e.target.value })} />
+                </div>
+                <div className="flex items-end gap-2">
+                  <button className="btn-primary text-sm" onClick={cadastrarPaciente} disabled={salvandoPac}>
+                    {salvandoPac ? "Salvando" : "Cadastrar e usar"}
+                  </button>
+                  <button className="btn-ghost text-sm" onClick={() => setNovoPac(null)}>Cancelar</button>
+                </div>
+                <p className="text-xs text-ink/60 md:col-span-2">
+                  Cadastro rápido, sem mensagens de WhatsApp. Pode ser completado depois em Pacientes.
+                </p>
+                {erro && <p className="text-sm text-danger md:col-span-2">{erro}</p>}
+              </div>
+            )}
             <ul className="mt-2 max-h-60 overflow-y-auto">
               {pacientesFiltrados.map((p) => (
                 <li key={p.id}>
                   <button
                     className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-paper"
-                    onClick={() => { setPacienteId(p.id); setEditado(false); }}
+                    onClick={() => setPacienteId(p.id)}
                   >
                     {p.full_name} {p.cpf && <span className="text-ink/50">· {p.cpf}</span>}
                   </button>
@@ -501,17 +483,40 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
         )}
       </section>
 
-      {paciente && (
+      {paciente && prontuario && (
         <>
           {/* 2. tipo */}
           <section className="rounded-xl bg-white p-4">
             <p className="text-base font-extrabold">2. Tipo de documento</p>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
-              {TIPOS.map((t) => (
+              {TIPOS.map((t) => {
+                const rec = RECURSO_DO_TIPO[t.id];
+                const bloqueado = !!rec && !temRecurso(recursos, rec);
+                if (bloqueado) {
+                  return (
+                    <a
+                      key={t.id}
+                      href="/painel/assinatura"
+                      className="rounded-lg border border-dashed border-ink/20 p-3 text-left text-sm opacity-70 hover:opacity-100"
+                    >
+                      <span className="font-semibold">🔒 {t.nome}</span>
+                      <span className="mt-1 block text-xs text-ink/60">
+                        Disponível a partir do plano {INFO_RECURSO[rec!].plano}. Toque para fazer upgrade.
+                      </span>
+                    </a>
+                  );
+                }
+                return (
                 <button
                   key={t.id}
                   disabled={!!substitui}
-                  onClick={() => { setTipo(t.id); setEditado(false); }}
+                  onClick={() => {
+                    setTipo(t.id);
+                    setEditadas({});
+                    setExtras([]);
+                    if (t.id === "laudo") setPericia((p) => ({ ...p, funcao: "perito" }));
+                    if (t.id === "parecer" && pericia.funcao === "perito") setPericia((p) => ({ ...p, funcao: "assistente_autor" }));
+                  }}
                   className={`rounded-lg border p-3 text-left text-sm disabled:opacity-60 ${
                     tipo === t.id ? "border-ink bg-paper" : "border-ink/15"
                   }`}
@@ -519,22 +524,18 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
                   <span className="font-semibold">{t.nome}</span>
                   <span className="mt-1 block text-xs text-ink/60">{t.descricao}</span>
                 </button>
-              ))}
+                );
+              })}
             </div>
 
-            {/* campos específicos */}
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {(tipo === "declaracao" || tipo === "atestado") && (
                 <div>
                   <label className="label" htmlFor="at">Atendimento</label>
-                  <select
-                    id="at"
-                    className="field w-full"
-                    value={campos.atendimentoId}
-                    onChange={(e) => setCampos({ ...campos, atendimentoId: e.target.value })}
-                  >
-                    {prontuario?.atendimentos.length ? null : <option value="">Nenhum atendimento registrado (usa a data de hoje)</option>}
-                    {prontuario?.atendimentos.map((a) => (
+                  <select id="at" className="field w-full" value={campos.atendimentoId}
+                    onChange={(e) => setCampos({ ...campos, atendimentoId: e.target.value })}>
+                    {prontuario.atendimentos.length ? null : <option value="">Nenhum atendimento registrado (usa a data de hoje)</option>}
+                    {prontuario.atendimentos.map((a) => (
                       <option key={a.id} value={a.id}>
                         {dataBR(a.starts_at)} das {horaBR(a.starts_at)} às {horaBR(a.ends_at)}
                       </option>
@@ -597,38 +598,92 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
             </div>
           </section>
 
-          {/* 3. texto */}
+          {ehPericia && (
+            <section className="rounded-xl bg-white p-4">
+              <p className="text-base font-extrabold">Dados da perícia</p>
+              <p className="mt-1 text-xs text-ink/60">
+                Preencha o que tiver. Tudo entra automaticamente no texto, e o que ficar em branco não aparece.
+              </p>
+              <div className="mt-3">
+                <PericiaCampos valor={pericia} aoMudar={setPericia} tipo={tipo as "parecer" | "laudo"} />
+              </div>
+            </section>
+          )}
+
+          {/* 3. o que puxar do prontuário */}
+          {blocosDoTipo.length > 0 && (
+            <section className="rounded-xl bg-white p-4">
+              <p className="text-base font-extrabold">3. Puxar do prontuário automaticamente</p>
+              <p className="mt-1 text-xs text-ink/60">
+                Marque o que deve entrar no documento. O texto é montado sozinho a partir do que já foi registrado.
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {blocosDoTipo.map((b) => {
+                  const vazio = !textoDoBloco(b.id);
+                  return (
+                    <label key={b.id} className={`flex items-center gap-2 rounded-lg border border-ink/10 px-3 py-2 text-sm ${vazio ? "opacity-60" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={blocos[b.id]}
+                        onChange={(e) => setBlocos({ ...blocos, [b.id]: e.target.checked })}
+                      />
+                      <span className="flex-1">{b.nome}</span>
+                      {vazio && <span className="text-xs text-ink/50">sem registro</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* 4. texto */}
           <section className="rounded-xl bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-base font-extrabold">3. Texto do documento</p>
-              <button className="btn-ghost text-sm" onClick={refazer}>Refazer a partir do prontuário</button>
+              <p className="text-base font-extrabold">{blocosDoTipo.length ? "4" : "3"}. Revisar e completar</p>
+              <button className="btn-ghost text-sm" onClick={adicionarParte}>Adicionar parte</button>
             </div>
             <p className="mt-1 text-xs text-ink/60">
-              O texto já vem montado com os dados do paciente e do prontuário. Edite o que quiser. Partes vazias não aparecem no documento.
+              Tudo pode ser editado. Partes em branco não aparecem no documento.
             </p>
-            <div className="mt-3 space-y-3">
-              {secoes.map((s, i) => (
-                <div key={i}>
-                  {s.titulo && (
-                    <input className="field mb-1 w-full font-semibold" value={s.titulo}
-                      onChange={(e) => editarSecao(i, { titulo: e.target.value })} />
-                  )}
-                  <textarea
-                    className="field w-full"
-                    rows={Math.max(3, Math.ceil(s.texto.length / 90) + s.texto.split("\n").length)}
-                    value={s.texto}
-                    placeholder={s.titulo ? `Escreva aqui: ${s.titulo.toLowerCase()}` : ""}
-                    onChange={(e) => editarSecao(i, { texto: e.target.value })}
-                  />
-                </div>
-              ))}
+            <div className="mt-3 space-y-4">
+              {secoes.map((s) => {
+                const extra = s.id.startsWith("extra-");
+                const alterada = !!editadas[s.id];
+                return (
+                  <div key={s.id}>
+                    {(s.titulo || extra) && (
+                      <div className="mb-1 flex items-center gap-2">
+                        <input className="field flex-1 font-semibold" value={s.titulo}
+                          onChange={(e) => editar(s, { titulo: e.target.value })} />
+                        {extra && (
+                          <button className="text-sm text-danger" onClick={() => setExtras((xs) => xs.filter((x) => x.id !== s.id))}>
+                            Remover
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    <textarea
+                      className="field w-full"
+                      rows={Math.max(2, Math.ceil(s.texto.length / 90) + s.texto.split("\n").length)}
+                      value={s.texto}
+                      placeholder={s.dica ?? (s.titulo ? `Escreva aqui: ${s.titulo.toLowerCase()}` : "")}
+                      onChange={(e) => editar(s, { texto: e.target.value })}
+                    />
+                    {alterada && s.bloco && (
+                      <button className="mt-1 text-xs text-ink/60 underline underline-offset-4" onClick={() => restaurar(s.id)}>
+                        Voltar ao texto do prontuário
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
-            {(tipo === "atestado" || tipo === "relatorio" || tipo === "encaminhamento") && (
+            {mostraClinico && (
               <div className="mt-4 grid gap-3 rounded-lg bg-paper p-3 md:grid-cols-[10rem_1fr]">
                 <div>
                   <label className="label" htmlFor="cid">CID (opcional)</label>
-                  <input id="cid" className="field w-full" placeholder="M17.1" value={cid} onChange={(e) => setCid(e.target.value)} />
+                  <input id="cid" className="field w-full" placeholder="M22.2" value={cid} onChange={(e) => setCid(e.target.value)} />
                 </div>
                 <label className="flex items-start gap-2 self-end text-sm">
                   <input type="checkbox" className="mt-1" checked={cidAutorizado} onChange={(e) => setCidAutorizado(e.target.checked)} />
@@ -638,15 +693,16 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
             )}
           </section>
 
-          {/* 4. CIF */}
+          {/* CIF */}
           {mostraClinico && (
             <section className="rounded-xl bg-white p-4">
               <label className="flex items-center gap-2 text-base font-extrabold">
                 <input type="checkbox" checked={usarCif} onChange={(e) => setUsarCif(e.target.checked)} />
-                4. Incluir classificação CIF
+                Incluir classificação CIF
               </label>
               <p className="mt-1 text-xs text-ink/60">
                 Classificação Internacional de Funcionalidade, Incapacidade e Saúde (OMS). Fica salva no paciente e vem marcada no próximo documento.
+                {cifSalva.length > 0 && !usarCif && " Este paciente já tem uma classificação salva."}
               </p>
               {usarCif && (
                 <div className="mt-3">
@@ -661,8 +717,8 @@ export function Documentos({ pacientes, documentos, catalogo, cidadeClinica }: P
             <p className="text-base font-extrabold">Prévia</p>
             <div className="mt-3 space-y-3 rounded-lg border border-ink/10 p-5 text-sm leading-relaxed">
               <p className="text-center font-extrabold uppercase tracking-wide">{tituloDoc}</p>
-              {secoes.filter((s) => s.texto.trim()).map((s, i) => (
-                <div key={i}>
+              {secoes.filter((s) => s.texto.trim()).map((s) => (
+                <div key={s.id}>
                   {s.titulo && <p className="font-semibold">{s.titulo}</p>}
                   <p className="whitespace-pre-line">{s.texto}</p>
                 </div>

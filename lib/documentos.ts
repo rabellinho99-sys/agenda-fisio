@@ -2,6 +2,7 @@
 // Funções puras: recebem os dados e devolvem as partes do documento.
 
 import { textoForca, textoOrto, type LinhaForca, type ResultadoOrto } from "./forca";
+import { textoGoniometria, type LinhaGonio } from "./goniometria";
 
 export type TipoDoc = "declaracao" | "atestado" | "relatorio" | "encaminhamento" | "parecer" | "laudo";
 
@@ -33,6 +34,7 @@ export type AvaliacaoFisica = {
   performed_at: string;
   ortho_results: ResultadoOrto[];
   strength_results: LinhaForca[];
+  gonio_results: LinhaGonio[];
   notes: string | null;
 };
 
@@ -298,7 +300,7 @@ function textoTermos(termos: Termo[]) {
 
 function textoTestes(a: AvaliacaoFisica | null | undefined) {
   if (!a) return "";
-  const partes = [textoOrto(a.ortho_results ?? []), textoForca(a.strength_results ?? [])].filter(Boolean);
+  const partes = [textoOrto(a.ortho_results ?? []), textoForca(a.strength_results ?? []), textoGoniometria(a.gonio_results ?? [])].filter(Boolean);
   if (!partes.length) return "";
   return [`Avaliação realizada em ${dataBR(a.performed_at)}.`, ...partes, a.notes?.trim() ? `Observações: ${ponto(a.notes.trim())}` : ""]
     .filter(Boolean).join("\n");
