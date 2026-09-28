@@ -15,10 +15,22 @@ type Plan = {
   billing_months: number; discount_pct: number; base_plan_code: string | null;
 };
 
-const FEATS: Record<string, string> = {
-  whatsapp: "Lembretes por WhatsApp", packages: "Pacotes de sessões", prontuario: "Prontuário e anamnese",
-  pix: "Pix no agendamento", reports: "Relatórios", api: "API e multiunidade",
-};
+// Benefícios na ordem em que aparecem nos cartões. "sempre" = incluído em todos os planos.
+const FEATS: { chave: string; texto: string; sempre?: boolean }[] = [
+  { chave: "agenda", texto: "Agenda e agendamento online com fotos dos serviços", sempre: true },
+  { chave: "prontuario", texto: "Prontuário: anamnese e evolução SOAP" },
+  { chave: "basicos", texto: "Declaração, atestado e QR de validação", sempre: true },
+  { chave: "whatsapp", texto: "WhatsApp automático (confirmação e lembretes)" },
+  { chave: "packages", texto: "Pacotes de sessões" },
+  { chave: "tcle", texto: "TCLE digital com assinatura" },
+  { chave: "imagens", texto: "Imagens e exames no prontuário" },
+  { chave: "documentos_clinicos", texto: "Relatório e encaminhamento automáticos" },
+  { chave: "testes", texto: "Testes ortopédicos e força com CIF" },
+  { chave: "pericia", texto: "Laudo pericial e parecer técnico" },
+  { chave: "financeiro", texto: "Financeiro completo com relatórios" },
+];
+
+const temFeat = (p: Plan, f: (typeof FEATS)[number]) => !!f.sempre || !!p.features?.[f.chave];
 
 const PERIODOS = [
   { months: 1,  label: "Mensal",          badge: null,   descricao: null },
@@ -31,9 +43,10 @@ function dias(iso: string | null) {
   return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000));
 }
 
-export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }: {
+export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail, contaDono = false }: {
   clinicId: string; isOwner: boolean; sub: Sub; plans: Plan[];
   clinic: { cnpj_cpf: string | null; email: string | null; phone: string | null }; userEmail: string;
+  contaDono?: boolean;
 }) {
   const supabase = createClient();
 
@@ -99,6 +112,28 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
   }
 
   const acesso = sub?.access ?? "blocked";
+  const planoAtualBase = (() => {
+    const cur = plans.find((p) => p.code === sub?.plan_code);
+    return cur?.base_plan_code ?? sub?.plan_code ?? null;
+  })();
+  const planoAtual = basePlans.find((p) => p.code === planoAtualBase) ?? null;
+  const selecionado = basePlans.find((p) => p.code === basePlano) ?? null;
+  const ganhos = planoAtual && selecionado && acesso === "active"
+    ? FEATS.filter((f) => temFeat(selecionado, f) && !temFeat(planoAtual, f))
+    : [];
+
+  if (contaDono) {
+    return (
+      <div className="max-w-3xl">
+        <h1 className="h-title text-3xl">Assinatura</h1>
+        <div className="mt-6 rounded-xl bg-white p-5">
+          <p className="text-sm text-ink/60">Conta do dono</p>
+          <p className="h-display mt-1 text-4xl">Acesso completo</p>
+          <p className="mt-2 text-ink/70">Todos os recursos liberados, sem cobrança e sem data de vencimento.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl">
@@ -224,6 +259,7 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
                 : plans.find((v) => v.base_plan_code === p.code && v.billing_months === periodo) ?? p;
               const precoMensal = Math.round(variant.price_cents / variant.billing_months);
               const sel = basePlano === p.code;
+              const atual = acesso === "active" && planoAtualBase === p.code;
 
               return (
                 <button
@@ -233,7 +269,12 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
                     sel ? "border-moss bg-white" : "border-mist bg-white/60 hover:border-moss/50"
                   }`}
                 >
-                  <p className="font-bold">{p.name}</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-bold">{p.name}</p>
+                    {atual && (
+                      <span className="rounded bg-moss px-1.5 py-0.5 text-xs font-bold text-white">Seu plano</span>
+                    )}
+                  </div>
                   <p className="mt-1 text-2xl font-extrabold tracking-tight">
                     {brl(precoMensal)}
                     <span className="text-sm font-normal text-ink/60">/mês</span>
@@ -248,17 +289,38 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail }:
                       ? `até ${p.max_professionals} ${p.max_professionals > 1 ? "profissionais" : "profissional"}`
                       : "profissionais ilimitados"}
                   </p>
-                  <ul className="mt-3 space-y-1 text-sm">
-                    {Object.entries(FEATS).map(([k, label]) => (
-                      <li key={k} className={p.features?.[k] ? "text-ink/85" : "text-ink/30 line-through"}>
-                        {label}
-                      </li>
-                    ))}
+                  <ul className="mt-3 space-y-1.5 text-sm">
+                    {FEATS.map((f) => {
+                      const tem = temFeat(p, f);
+                      return (
+                        <li key={f.chave} className={`flex gap-2 ${tem ? "text-ink/85" : "text-ink/35"}`}>
+                          <span aria-hidden="true" className="w-4 shrink-0 text-center">{tem ? "✓" : "🔒"}</span>
+                          <span>{f.texto}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </button>
               );
             })}
           </div>
+
+          {ganhos.length > 0 && selecionado && (
+            <div className="mt-4 rounded-xl border border-moss/40 bg-white p-4 text-sm">
+              <p className="font-bold">Ao mudar para o {selecionado.name}, você ganha:</p>
+              <ul className="mt-2 space-y-1">
+                {ganhos.map((f) => (
+                  <li key={f.chave} className="flex gap-2"><span aria-hidden="true">✓</span>{f.texto}</li>
+                ))}
+                {(selecionado.max_professionals ?? Infinity) > (planoAtual?.max_professionals ?? Infinity) || (!selecionado.max_professionals && planoAtual?.max_professionals) ? (
+                  <li className="flex gap-2">
+                    <span aria-hidden="true">✓</span>
+                    {selecionado.max_professionals ? `Até ${selecionado.max_professionals} profissionais` : "Profissionais ilimitados"}
+                  </li>
+                ) : null}
+              </ul>
+            </div>
+          )}
 
           {/* Formulário de dados e botão */}
           {isOwner ? (

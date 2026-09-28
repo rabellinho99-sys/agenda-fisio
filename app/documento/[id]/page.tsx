@@ -1,6 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import { headers } from "next/headers";
-import { qrSvg } from "@/lib/qrcodegen";
 import { createClient } from "@/lib/supabase/server";
 import { BotaoImprimir } from "@/components/BotaoImprimir";
 import { codigoComQualificador, descricaoQualificador, ordenarItens, type CifItem } from "@/lib/cif";
@@ -20,12 +18,7 @@ type Snapshot = {
   patient: { name: string; cpf: string | null; birth_date: string | null };
 };
 
-type Corpo = {
-  secoes: { titulo: string; texto: string }[];
-  cid?: string | null;
-  cid_autorizado?: boolean;
-  assinatura_rotulo?: string;
-};
+type Corpo = { secoes: { titulo: string; texto: string }[]; cid?: string | null; cid_autorizado?: boolean };
 
 const TZ = "America/Sao_Paulo";
 
@@ -67,12 +60,6 @@ export default async function DocumentoPage({ params }: { params: Promise<{ id: 
   const enderecoLinha = [end.street, end.district, cidadeUf, end.zip].filter(Boolean).join(", ");
   const contato = [snap.clinic.phone, snap.clinic.email].filter(Boolean).join(" | ");
   const registro = [snap.professional.crefito_region, snap.professional.crefito].filter(Boolean).join(" ");
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "agendafisiopro.com.br";
-  const codigo = doc.hash.slice(0, 16).toUpperCase();
-  const codigoFormatado = codigo.match(/.{4}/g)!.join("-");
-  const urlVerificacao = `https://${host}/verificar/${codigo}`;
-  const qr = qrSvg(urlVerificacao);
   const emitido = new Date(doc.issued_at);
   const dataExtenso = emitido.toLocaleDateString("pt-BR", { timeZone: TZ, day: "numeric", month: "long", year: "numeric" });
   const dataHora = emitido.toLocaleString("pt-BR", { timeZone: TZ });
@@ -155,29 +142,17 @@ export default async function DocumentoPage({ params }: { params: Promise<{ id: 
           </div>
           <div className="mt-1 w-[80mm] border-t border-black pt-1">
             <p className="font-bold">{snap.professional.name}</p>
-            <p>{corpo.assinatura_rotulo ?? "Fisioterapeuta"}{registro ? ` | ${registro}` : ""}</p>
+            <p>Fisioterapeuta{registro ? ` | ${registro}` : ""}</p>
             {snap.professional.titles && <p className="text-[9.5pt]">{snap.professional.titles}</p>}
           </div>
         </div>
 
-        <footer className="mt-auto flex items-end gap-3 pt-10 text-[8pt] text-black/60 break-inside-avoid">
-          <div
-            className="h-[22mm] w-[22mm] shrink-0"
-            aria-label="QR Code de verificação"
-            dangerouslySetInnerHTML={{ __html: qr }}
-          />
-          <div className="leading-snug">
-            <p>
-              Documento nº {doc.number} emitido em {dataHora}
-              {versaoAnterior ? `, substitui o documento nº ${versaoAnterior}` : ""}.
-            </p>
-            <p>
-              Código de verificação: <span className="font-mono text-black">{codigoFormatado}</span>
-            </p>
-            <p>
-              Confira a autenticidade lendo o QR Code ou em {host}/verificar
-            </p>
-          </div>
+        <footer className="mt-auto pt-10 text-[8pt] text-black/60">
+          <p>
+            Documento nº {doc.number} emitido em {dataHora}
+            {versaoAnterior ? `, substitui o documento nº ${versaoAnterior}` : ""}. Código de verificação:{" "}
+            <span className="font-mono">{doc.hash.slice(0, 16).toUpperCase()}</span>
+          </p>
         </footer>
       </article>
     </main>

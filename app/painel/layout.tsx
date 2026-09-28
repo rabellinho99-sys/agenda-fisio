@@ -4,8 +4,6 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SairButton } from "@/components/SairButton";
 import { Gate } from "@/components/Gate";
-import { BloqueioPlano } from "@/components/BloqueioPlano";
-import { NOME_PLANO, temRecurso, type Recurso, type Recursos } from "@/lib/planos";
 
 const WHATSAPP_SUPORTE =
   "https://wa.me/5533999631999?text=" +
@@ -64,11 +62,6 @@ export default async function PainelLayout({ children }: { children: React.React
     .select("trial_ends_at")
     .eq("clinic_id", member.clinic_id)
     .single();
-  const { data: recursosRaw } = await supabase.rpc("clinic_features", { p_clinic: member.clinic_id });
-  const recursos = (recursosRaw ?? {}) as Recursos;
-  const nomePlano = NOME_PLANO[recursos.plano ?? ""] ?? "";
-  const cadeado = (r: Recurso) => (temRecurso(recursos, r) ? "" : " 🔒");
-
   const diasTrial = sub?.trial_ends_at
     ? Math.max(0, Math.ceil((new Date(sub.trial_ends_at).getTime() - Date.now()) / 86400000))
     : 0;
@@ -79,21 +72,15 @@ export default async function PainelLayout({ children }: { children: React.React
         <div>
           <p className="text-xs text-ink/60">Agenda Fisio Pro</p>
           <p className="text-lg font-extrabold tracking-tight">{clinic.name}</p>
-          {nomePlano && (
-            <Link href="/painel/assinatura" className="text-xs text-ink/60 underline underline-offset-4">
-              Plano {nomePlano}
-            </Link>
-          )}
         </div>
         <nav className="flex flex-wrap items-center gap-1 rounded-lg bg-white p-1">
           <Link href="/painel" className={linkMenu}>Agenda</Link>
           <Link href="/painel/pacientes" className={linkMenu}>Pacientes</Link>
           <Link href="/painel/anamnese" className={linkMenu}>Anamnese</Link>
-          <Link href="/painel/testes" className={linkMenu}>Testes{cadeado("testes")}</Link>
           <Link href="/painel/documentos" className={linkMenu}>Documentos</Link>
-          <Link href="/painel/termos" className={linkMenu}>Termos{cadeado("tcle")}</Link>
-          <Link href="/painel/pacotes" className={linkMenu}>Pacotes{cadeado("packages")}</Link>
-          <Link href="/painel/financeiro" className={linkMenu}>Financeiro{cadeado("financeiro")}</Link>
+          <Link href="/painel/termos" className={linkMenu}>Termos</Link>
+          <Link href="/painel/pacotes" className={linkMenu}>Pacotes</Link>
+          <Link href="/painel/financeiro" className={linkMenu}>Financeiro</Link>
           <Link href="/painel/servicos" className={linkMenu}>Serviços</Link>
           <Link href="/painel/horarios" className={linkMenu}>Horários</Link>
           <Link href="/painel/assinatura" className={linkMenu}>Assinatura</Link>
@@ -128,9 +115,7 @@ export default async function PainelLayout({ children }: { children: React.React
 
       <main className="pb-16">
         <NavegacaoTopo inicio="/painel" />
-        <Gate blocked={access === "blocked"}>
-          <BloqueioPlano recursos={recursos}>{children}</BloqueioPlano>
-        </Gate>
+        <Gate blocked={access === "blocked"}>{children}</Gate>
       </main>
 
       <a
