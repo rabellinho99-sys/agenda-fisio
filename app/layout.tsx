@@ -1,9 +1,34 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { PwaRegister } from "@/components/PwaRegister";
 
 export const metadata: Metadata = {
   title: "Agenda Fisio Pro",
   description: "Agendamento online feito para fisioterapeutas.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "AgendaFisio",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: [
+      { url: "/icon-48x48.png", sizes: "48x48", type: "image/png" },
+      { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      { url: "/icon-180x180.png", sizes: "180x180", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#22784a",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -17,7 +42,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <PwaRegister />
+        {children}
+      </body>
     </html>
   );
 }
