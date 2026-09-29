@@ -222,12 +222,25 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
   );
 }
 
+/* ── Novo Atendimento com busca de paciente ─────────────────── */
+
+type PacienteBusca = { id: string; full_name: string; phone: string | null };
+
 function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSaved }: {
   clinicId: string; dia: Date; professionals: Prof[]; services: Svc[]; onClose: () => void; onSaved: () => void;
 }) {
   const supabase = createClient();
-  const [nome, setNome] = useState("");
-  const [fone, setFone] = useState("");
+
+  // paciente
+  const [busca, setBusca] = useState("");
+  const [resultados, setResultados] = useState<PacienteBusca[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [selecionado, setSelecionado] = useState<PacienteBusca | null>(null);
+  const [novoNome, setNovoNome] = useState("");
+  const [novoFone, setNovoFone] = useState("");
+  const [modoNovo, setModoNovo] = useState(false);
+
+  // agendamento
   const [svc, setSvc] = useState(services[0]?.id ?? "");
   const [prof, setProf] = useState(professionals[0]?.id ?? "");
   const [data, setData] = useState(toISODate(dia));
@@ -235,25 +248,93 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
+  // Buscar pacientes ao digitar (debounce simples)
+  useEffect(() => {
+    if (selecionado || modoNovo) return;
+    const t = busca.trim();
+    if (t.length < 2) { setResultados([]); return; }
+    const timer = setTimeout(async () => {
+      setBuscando(true);
+      const { data } = await supabase
+        .from("patients")
+        .select("id, full_name, phone")
+        .eq("clinic_id", clinicId)
+        .or(`full_name.ilike.%${t}%,phone.ilike.%${t}%`)
+        .order("full_name")
+        .limit(8);
+      setResultados((data ?? []) as PacienteBusca[]);
+      setBuscando(false);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [busca, clinicId, selecionado, modoNovo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function escolher(p: PacienteBusca) {
+    setSelecionado(p);
+    setBusca(p.full_name);
+    setResultados([]);
+  }
+
+  function limpar() {
+    setSelecionado(null);
+    setBusca("");
+    setResultados([]);
+    setModoNovo(false);
+    setNovoNome("");
+    setNovoFone("");
+  }
+
+  function iniciarNovo() {
+    setModoNovo(true);
+    setNovoNome(busca.trim());
+    setResultados([]);
+  }
+
   async function salvar() {
     setErro(null); setSalvando(true);
     const s = services.find((x) => x.id === svc)!;
-    const { data: pac, error: e1 } = await supabase
-      .from("patients")
-      .upsert({ clinic_id: clinicId, full_name: nome, phone: fone, referral_source: "panel" }, { onConflict: "clinic_id,phone" })
-      .select("id").single();
-    if (e1 || !pac) { setSalvando(false); return setErro(e1?.message ?? "Erro ao salvar paciente"); }
+
+    let pacienteId: string;
+
+    if (selecionado) {
+      pacienteId = selecionado.id;
+    } else if (modoNovo && novoNome.trim()) {
+      const foneValido = novoFone.replace(/\D/g, "");
+      const insert: Record<string, unknown> = {
+        clinic_id: clinicId,
+        full_name: novoNome.trim(),
+        referral_source: "panel",
+      };
+      if (foneValido.length >= 10) {
+        insert.phone = foneValido;
+      }
+      // Se tem telefone, faz upsert; senão, faz insert direto
+      const { data: pac, error: e1 } = foneValido.length >= 10
+        ? await supabase
+            .from("patients")
+            .upsert({ ...insert, phone: foneValido }, { onConflict: "clinic_id,phone" })
+            .select("id").single()
+        : await supabase
+            .from("patients")
+            .insert(insert)
+            .select("id").single();
+      if (e1 || !pac) { setSalvando(false); return setErro(e1?.message ?? "Erro ao salvar paciente"); }
+      pacienteId = pac.id;
+    } else {
+      setSalvando(false);
+      return setErro("Selecione um paciente ou cadastre um novo.");
+    }
 
     const inicio = new Date(`${data}T${hora}:00`);
     const fim = new Date(inicio.getTime() + (s.duration_minutes + s.buffer_after_minutes) * 60000);
 
     let pacoteId: string | null = null;
     let preco = s.price_cents;
-    const { data: pacotes } = await supabase.rpc("active_packages", { p_patient: pac.id, p_service: svc });
+    const { data: pacotes } = await supabase.rpc("active_packages", { p_patient: pacienteId, p_service: svc });
     const lista = (pacotes ?? []) as { id: string; package_name: string; saldo: number }[];
     if (lista.length > 0) {
       const p0 = lista[0];
-      if (window.confirm(`${nome} tem ${p0.saldo} sessão(ões) no ${p0.package_name}.\n\nUsar uma sessão do pacote neste atendimento?`)) {
+      const nomePac = selecionado?.full_name ?? novoNome;
+      if (window.confirm(`${nomePac} tem ${p0.saldo} sessão(ões) no ${p0.package_name}.\n\nUsar uma sessão do pacote neste atendimento?`)) {
         pacoteId = p0.id; preco = 0;
       }
     }
@@ -269,7 +350,7 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
     }
 
     const { error: e2 } = await supabase.from("appointments").insert({
-      clinic_id: clinicId, patient_id: pac.id, professional_id: prof, service_id: svc,
+      clinic_id: clinicId, patient_id: pacienteId, professional_id: prof, service_id: svc,
       starts_at: inicio.toISOString(), ends_at: fim.toISOString(), patient_package_id: pacoteId,
       status: "confirmed", source: "panel", price_cents: preco, confirmed_at: new Date().toISOString(),
     });
@@ -278,18 +359,87 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
     onSaved();
   }
 
+  const podeS = selecionado || (modoNovo && novoNome.trim());
+
   return (
     <div className="space-y-3 rounded-xl bg-white p-4">
       <p className="font-bold">Novo atendimento</p>
-      <div><label className="label">Paciente</label><input className="field" value={nome} onChange={(e) => setNome(e.target.value)} /></div>
-      <div><label className="label">WhatsApp</label><input className="field" value={fone} onChange={(e) => setFone(e.target.value)} placeholder="33999990000" /></div>
+
+      {/* Busca de paciente */}
+      {!selecionado && !modoNovo && (
+        <div className="relative">
+          <label className="label">Paciente</label>
+          <input
+            className="field w-full"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Digite o nome ou telefone para buscar"
+            autoFocus
+          />
+          {buscando && <p className="mt-1 text-xs text-ink/50">Buscando...</p>}
+          {resultados.length > 0 && (
+            <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-ink/10 bg-white shadow-lg">
+              {resultados.map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-paper"
+                    onClick={() => escolher(p)}
+                  >
+                    <span className="font-semibold">{p.full_name}</span>
+                    {p.phone && <span className="ml-2 text-ink/50">{p.phone}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {busca.trim().length >= 2 && !buscando && resultados.length === 0 && (
+            <p className="mt-1 text-xs text-ink/50">Nenhum paciente encontrado.</p>
+          )}
+          <button
+            type="button"
+            className="mt-2 text-sm text-moss underline underline-offset-4"
+            onClick={iniciarNovo}
+          >
+            Cadastrar novo paciente
+          </button>
+        </div>
+      )}
+
+      {/* Paciente selecionado */}
+      {selecionado && (
+        <div>
+          <label className="label">Paciente</label>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">{selecionado.full_name}</span>
+            {selecionado.phone && <span className="text-sm text-ink/50">{selecionado.phone}</span>}
+            <button type="button" className="ml-auto text-sm text-ink/50 underline" onClick={limpar}>Trocar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Cadastro de novo paciente */}
+      {modoNovo && (
+        <>
+          <div>
+            <label className="label">Nome do paciente</label>
+            <input className="field w-full" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} autoFocus />
+          </div>
+          <div>
+            <label className="label">WhatsApp <span className="font-normal text-ink/50">(opcional)</span></label>
+            <input className="field w-full" value={novoFone} onChange={(e) => setNovoFone(e.target.value)} placeholder="33999990000" />
+          </div>
+          <button type="button" className="text-sm text-ink/50 underline" onClick={limpar}>Voltar para busca</button>
+        </>
+      )}
+
       <div><label className="label">Serviço</label>
-        <select className="field" value={svc} onChange={(e) => setSvc(e.target.value)}>
+        <select className="field w-full" value={svc} onChange={(e) => setSvc(e.target.value)}>
           {services.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.duration_minutes} min)</option>)}
         </select>
       </div>
       <div><label className="label">Profissional</label>
-        <select className="field" value={prof} onChange={(e) => setProf(e.target.value)}>
+        <select className="field w-full" value={prof} onChange={(e) => setProf(e.target.value)}>
           {professionals.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
         </select>
       </div>
@@ -299,7 +449,7 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
       </div>
       {erro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
       <div className="flex gap-2">
-        <button className="btn-primary flex-1" onClick={salvar} disabled={salvando || !nome || !fone || !svc || !prof}>Salvar</button>
+        <button className="btn-primary flex-1" onClick={salvar} disabled={salvando || !podeS || !svc || !prof}>Salvar</button>
         <button className="btn-ghost" onClick={onClose}>Fechar</button>
       </div>
     </div>
