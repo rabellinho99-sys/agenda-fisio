@@ -93,6 +93,7 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail, c
     }
     setConfirmCancelar(false);
     setCancelado(true);
+    window.location.reload();
   }
 
   async function assinar() {
@@ -148,7 +149,17 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail, c
             <p className="mt-2 text-ink/70">Assine antes do fim do teste para não interromper o link dos seus pacientes.</p>
           </>
         )}
-        {acesso === "active" && (
+        {acesso === "active" && sub?.status === "cancelled" && (
+          <>
+            <p className="text-sm text-ink/60">Plano {sub?.plan_name}</p>
+            <p className="h-display mt-1 text-4xl">Cancelada</p>
+            <p className="mt-2 text-ink/70">
+              Seu acesso continua até {sub?.current_period_end ? new Date(sub.current_period_end).toLocaleDateString("pt-BR") : "o fim do período pago"}.
+              Não haverá novas cobranças. Para continuar depois dessa data, escolha um plano abaixo.
+            </p>
+          </>
+        )}
+        {acesso === "active" && sub?.status !== "cancelled" && (
           <>
             <p className="text-sm text-ink/60">Plano {sub?.plan_name}</p>
             <p className="h-display mt-1 text-4xl">Ativo</p>
@@ -177,7 +188,7 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail, c
       </div>
 
       {/* Cancelamento */}
-      {isOwner && (acesso === "active" || acesso === "past_due") && sub?.has_gateway && !cancelado && (
+      {isOwner && (acesso === "active" || acesso === "past_due") && sub?.has_gateway && sub?.status !== "cancelled" && !cancelado && (
         <div className="mt-4">
           {!confirmCancelar ? (
             <button

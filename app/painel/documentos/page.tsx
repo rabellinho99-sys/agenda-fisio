@@ -33,11 +33,15 @@ export default async function DocumentosPage() {
     supabase.from("clinics").select("address").eq("id", member.clinic_id).single(),
   ]);
 
+  const { data: recursos } = await supabase.rpc("clinic_features", { p_clinic: member.clinic_id });
+
   const end = (clinica?.address ?? {}) as { city?: string; state?: string };
   const cidade = [end.city, end.state].filter(Boolean).join(" - ");
 
   return (
     <Documentos
+      recursos={(recursos ?? {}) as never}
+      clinicId={member.clinic_id}
       pacientes={pacientes ?? []}
       documentos={(documentos ?? []) as never}
       catalogo={(catalogo ?? []) as CifCodigo[]}
