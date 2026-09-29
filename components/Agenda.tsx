@@ -43,6 +43,10 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
   const [notaAberta, setNotaAberta] = useState<string | null>(null);
   const [notaTexto, setNotaTexto] = useState("");
   const [salvandoNota, setSalvandoNota] = useState(false);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ data: "", hora: "", svc: "", prof: "" });
+  const [salvandoEdit, setSalvandoEdit] = useState(false);
+  const [erroEdit, setErroEdit] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -89,6 +93,43 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
 
   function mover(n: number) { const d = new Date(dia); d.setDate(d.getDate() + n); setDia(d); }
 
+  function abrirEdicao(a: Appt) {
+    const inicio = new Date(a.starts_at);
+    setEditandoId(a.id);
+    setEditForm({
+      data: toISODate(inicio),
+      hora: inicio.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }),
+      svc: "",
+      prof: "",
+    });
+    setErroEdit(null);
+  }
+
+  async function salvarEdicao(a: Appt) {
+    setSalvandoEdit(true);
+    setErroEdit(null);
+    const svcId = editForm.svc || a.services?.name;
+    const svcObj = services.find((x) => x.id === editForm.svc) ?? services.find((x) => x.name === a.services?.name);
+    const profId = editForm.prof || professionals.find((x) => x.display_name === a.professionals?.display_name)?.id;
+
+    const inicio = new Date(`${editForm.data}T${editForm.hora}:00`);
+    const duracao = svcObj ? svcObj.duration_minutes + svcObj.buffer_after_minutes : 50;
+    const fim = new Date(inicio.getTime() + duracao * 60000);
+
+    const patch: Record<string, unknown> = {
+      starts_at: inicio.toISOString(),
+      ends_at: fim.toISOString(),
+    };
+    if (editForm.svc) patch.service_id = editForm.svc;
+    if (editForm.prof) patch.professional_id = editForm.prof;
+
+    const { error } = await supabase.from("appointments").update(patch).eq("id", a.id);
+    setSalvandoEdit(false);
+    if (error) return setErroEdit(error.message);
+    setEditandoId(null);
+    carregar();
+  }
+
   const inativos = ["completed", "no_show", "cancelled_by_patient", "cancelled_by_clinic"];
   function temConflito(a: Appt) {
     if (inativos.includes(a.status)) return false;
@@ -117,10 +158,17 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
             <p className="text-sm text-ink/60 capitalize">{fmtDateLong(dia, tz)}</p>
             <h1 className="h-display text-5xl">{dia.getDate()}</h1>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button className="btn-ghost" onClick={() => mover(-1)}>Anterior</button>
             <button className="btn-ghost" onClick={() => setDia(new Date())}>Hoje</button>
             <button className="btn-ghost" onClick={() => mover(1)}>Próximo</button>
+            <input
+              type="date"
+              className="field text-sm"
+              value={toISODate(dia)}
+              onChange={(e) => { if (e.target.value) setDia(new Date(e.target.value + "T12:00:00")); }}
+              title="Escolher data no calendário"
+            />
           </div>
         </div>
 
@@ -199,6 +247,7 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
                       <button className="btn-danger px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, a.status === "pending" ? "cancelled_by_clinic" : "cancelled_by_clinic")}>
                         {a.status === "pending" ? "Recusar" : "Cancelar"}
                       </button>
+                      <button className="btn-ghost px-2 py-1 text-xs" onClick={() => abrirEdicao(a)}>Editar</button>
                     </div>
                   )}
                   {ativo && (
@@ -212,6 +261,46 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
                       inicio={a.starts_at}
                       timezone={tz}
                     />
+                  )}
+                  {editandoId === a.id && (
+                    <div className="mt-3 w-full space-y-2 rounded-lg border border-ink/10 p-3">
+                      <p className="text-xs font-semibold">Editar horário</p>
+                      <div className="flex flex-wrap gap-2">
+                        <div>
+                          <label className="text-xs text-ink/60">Data</label>
+                          <input type="date" className="field text-sm" value={editForm.data}
+                            onChange={(e) => setEditForm({ ...editForm, data: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="text-xs text-ink/60">Hora</label>
+                          <input type="time" className="field text-sm" value={editForm.hora} step={300}
+                            onChange={(e) => setEditForm({ ...editForm, hora: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="text-xs text-ink/60">Serviço</label>
+                          <select className="field text-sm" value={editForm.svc}
+                            onChange={(e) => setEditForm({ ...editForm, svc: e.target.value })}>
+                            <option value="">Manter atual</option>
+                            {services.map((sv) => <option key={sv.id} value={sv.id}>{sv.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-ink/60">Profissional</label>
+                          <select className="field text-sm" value={editForm.prof}
+                            onChange={(e) => setEditForm({ ...editForm, prof: e.target.value })}>
+                            <option value="">Manter atual</option>
+                            {professionals.map((pr) => <option key={pr.id} value={pr.id}>{pr.display_name}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      {erroEdit && <p className="text-xs text-danger">{erroEdit}</p>}
+                      <div className="flex gap-2">
+                        <button className="btn-primary px-3 py-1 text-xs" onClick={() => salvarEdicao(a)} disabled={salvandoEdit}>
+                          {salvandoEdit ? "Salvando" : "Salvar"}
+                        </button>
+                        <button className="btn-ghost px-3 py-1 text-xs" onClick={() => setEditandoId(null)}>Cancelar</button>
+                      </div>
+                    </div>
                   )}
                 </div>
               </article>
