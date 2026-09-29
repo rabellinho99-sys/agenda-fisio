@@ -5,9 +5,9 @@ import { createClient } from "@/lib/supabase/client";
 import { brl } from "@/lib/format";
 import { ServicePhotoEditor } from "@/components/ServicePhotoEditor";
 
-type Svc = { id: string; name: string; category: string | null; duration_minutes: number; buffer_after_minutes: number; price_cents: number; visible_online: boolean; active: boolean; description: string | null; image_url: string | null };
+type Svc = { id: string; name: string; category: string | null; duration_minutes: number; buffer_after_minutes: number; price_cents: number; max_participants: number; visible_online: boolean; active: boolean; description: string | null; image_url: string | null };
 
-const vazio = { name: "", category: "", duration_minutes: 50, buffer_after_minutes: 0, price: "", visible_online: true };
+const vazio = { name: "", category: "", duration_minutes: 50, buffer_after_minutes: 0, price: "", max_participants: 1, visible_online: true };
 
 export function Servicos({ clinicId, inicial }: { clinicId: string; inicial: Svc[] }) {
   const supabase = createClient();
@@ -18,7 +18,7 @@ export function Servicos({ clinicId, inicial }: { clinicId: string; inicial: Svc
 
   async function recarregar() {
     const { data } = await supabase.from("services")
-      .select("id, name, category, duration_minutes, buffer_after_minutes, price_cents, visible_online, active, description, image_url")
+      .select("id, name, category, duration_minutes, buffer_after_minutes, price_cents, max_participants, visible_online, active, description, image_url")
       .eq("clinic_id", clinicId).eq("active", true).order("sort_order").order("name");
     setLista((data as Svc[]) ?? []);
   }
@@ -29,6 +29,7 @@ export function Servicos({ clinicId, inicial }: { clinicId: string; inicial: Svc
       clinic_id: clinicId, name: form.name, category: form.category || null,
       duration_minutes: Number(form.duration_minutes), buffer_after_minutes: Number(form.buffer_after_minutes),
       price_cents: Math.round(Number(String(form.price).replace(",", ".")) * 100) || 0,
+      max_participants: Math.max(1, Number(form.max_participants) || 1),
       visible_online: form.visible_online,
     };
     const q = editando
@@ -41,7 +42,7 @@ export function Servicos({ clinicId, inicial }: { clinicId: string; inicial: Svc
 
   function editar(s: Svc) {
     setEditando(s.id);
-    setForm({ name: s.name, category: s.category ?? "", duration_minutes: s.duration_minutes, buffer_after_minutes: s.buffer_after_minutes, price: (s.price_cents / 100).toFixed(2).replace(".", ","), visible_online: s.visible_online });
+    setForm({ name: s.name, category: s.category ?? "", duration_minutes: s.duration_minutes, buffer_after_minutes: s.buffer_after_minutes, price: (s.price_cents / 100).toFixed(2).replace(".", ","), max_participants: s.max_participants, visible_online: s.visible_online });
   }
 
   async function remover(id: string) {
@@ -64,7 +65,11 @@ export function Servicos({ clinicId, inicial }: { clinicId: string; inicial: Svc
           {lista.map((s) => (
             <article key={s.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white p-4">
               <div>
-                <p className="font-semibold">{s.name} {!s.visible_online && <span className="ml-2 rounded bg-ink/10 px-1.5 py-0.5 text-xs">só no painel</span>}</p>
+                <p className="font-semibold">
+                  {s.name}
+                  {s.max_participants > 1 && <span className="ml-2 rounded bg-moss/15 px-1.5 py-0.5 text-xs font-bold text-moss-deep">{s.max_participants} vagas</span>}
+                  {!s.visible_online && <span className="ml-2 rounded bg-ink/10 px-1.5 py-0.5 text-xs">só no painel</span>}
+                </p>
                 <p className="text-sm text-ink/60">{s.category ? `${s.category} · ` : ""}{s.duration_minutes} min{s.buffer_after_minutes ? ` + ${s.buffer_after_minutes} de intervalo` : ""} · {brl(s.price_cents)}</p>
               </div>
               <div className="flex gap-2">
@@ -84,7 +89,14 @@ export function Servicos({ clinicId, inicial }: { clinicId: string; inicial: Svc
           <div><label className="label">Duração (min)</label><input type="number" className="field" value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: Number(e.target.value) })} /></div>
           <div><label className="label">Intervalo depois</label><input type="number" className="field" value={form.buffer_after_minutes} onChange={(e) => setForm({ ...form, buffer_after_minutes: Number(e.target.value) })} /></div>
         </div>
-        <div><label className="label">Preço (R$)</label><input className="field" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="250,00" /></div>
+        <div className="grid grid-cols-2 gap-2">
+          <div><label className="label">Preço (R$)</label><input className="field" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="250,00" /></div>
+          <div>
+            <label className="label">Vagas por horário</label>
+            <input type="number" min={1} max={50} className="field" value={form.max_participants} onChange={(e) => setForm({ ...form, max_participants: Number(e.target.value) || 1 })} />
+            <p className="mt-0.5 text-xs text-ink/50">{form.max_participants > 1 ? "Turma (Pilates, funcional)" : "Individual"}</p>
+          </div>
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={form.visible_online} onChange={(e) => setForm({ ...form, visible_online: e.target.checked })} />
           Aparece na página pública
