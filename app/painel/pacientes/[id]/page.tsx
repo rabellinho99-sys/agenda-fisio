@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Prontuario } from "@/components/Prontuario";
+import { ExcluirPaciente } from "@/components/ExcluirPaciente";
 
 export default async function ProntuarioPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ appt?: string }> }) {
   const { id } = await params;
@@ -32,24 +33,27 @@ export default async function ProntuarioPage({ params, searchParams }: { params:
   const meu = professionals?.find((p) => p.user_id === user!.id)?.id ?? professionals?.[0]?.id ?? null;
 
   return (
-    <Prontuario
-      patient={patient}
-      notes={(notes ?? []) as never}
-      appts={(appts ?? []) as never}
-      professionals={professionals ?? []}
-      meuProfissional={meu}
-      apptInicial={appt ?? null}
-      tz={clinic?.timezone ?? "America/Sao_Paulo"}
-      templates={(templates ?? []) as never}
-      anamneses={(anamneses ?? []) as never}
-      requests={(requests ?? []) as never}
-      consentTemplates={consentTemplates ?? []}
-      consents={(consents ?? []) as never}
-      consentRequests={(consentRequests ?? []) as never}
-      catalogo={catalogo ?? []}
-      pacotes={(pacotes ?? []) as never}
-      servicos={servicos ?? []}
-      imagens={(imagens ?? []) as never}
-    />
+    <>
+      <Prontuario
+        patient={patient}
+        notes={(notes ?? []) as never}
+        appts={(appts ?? []) as never}
+        professionals={professionals ?? []}
+        meuProfissional={meu}
+        apptInicial={appt ?? null}
+        tz={clinic?.timezone ?? "America/Sao_Paulo"}
+        templates={(templates ?? []) as never}
+        anamneses={(anamneses ?? []) as never}
+        requests={(requests ?? []) as never}
+        consentTemplates={consentTemplates ?? []}
+        consents={(consents ?? []) as never}
+        consentRequests={(consentRequests ?? []) as never}
+        catalogo={catalogo ?? []}
+        pacotes={(pacotes ?? []) as never}
+        servicos={servicos ?? []}
+        imagens={(imagens ?? []) as never}
+      />
+      <ExcluirPaciente pacienteId={id} nome={patient.full_name} />
+    </>
   );
 }

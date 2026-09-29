@@ -7,7 +7,7 @@ import { brl, fmtDateLong, fmtTime, toISODate } from "@/lib/format";
 import { LembreteWhatsApp } from "@/components/LembreteWhatsApp";
 
 type Prof = { id: string; display_name: string };
-type Svc = { id: string; name: string; duration_minutes: number; buffer_after_minutes: number; price_cents: number };
+type Svc = { id: string; name: string; duration_minutes: number; buffer_after_minutes: number; price_cents: number; max_participants: number };
 type Appt = {
   id: string; patient_id: string; patient_package_id: string | null; starts_at: string; ends_at: string; status: string; price_cents: number;
   color: string | null; internal_notes: string | null;
@@ -99,6 +99,16 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
     );
   }
 
+  // Agrupar atendimentos de turma (mesmo serviço + profissional + horário)
+  function participantesTurma(a: Appt) {
+    return appts.filter((b) =>
+      b.services?.name === a.services?.name &&
+      b.professionals?.display_name === a.professionals?.display_name &&
+      b.starts_at === a.starts_at &&
+      !inativos.includes(b.status)
+    );
+  }
+
   return (
     <div className="grid gap-6 md:grid-cols-[1fr_320px]">
       <section>
@@ -137,7 +147,13 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
                 <div>
                   <Link href={`/painel/pacientes/${a.patient_id}`} className="font-semibold hover:underline">{a.patients?.full_name}</Link>
                   <p className="text-sm text-ink/70">{a.services?.name} com {a.professionals?.display_name}</p>
-                  <p className="text-sm text-ink/50">{a.patients?.phone} · {a.patient_package_id ? "sessão de pacote" : brl(a.price_cents)}</p>
+                  {(() => {
+                    const turma = participantesTurma(a);
+                    return turma.length > 1 ? (
+                      <p className="text-xs text-moss font-semibold">Turma: {turma.length} alunos neste horário ({turma.map((t) => t.patients?.full_name?.split(" ")[0]).join(", ")})</p>
+                    ) : null;
+                  })()}
+                  <p className="text-sm text-ink/50">{a.patients?.phone ? a.patients.phone + " · " : ""}{a.patient_package_id ? "sessão de pacote" : brl(a.price_cents)}</p>
 
                   <div className="mt-2 flex items-center gap-2">
                     <span className="text-xs text-ink/50">Marcador:</span>
@@ -340,7 +356,7 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
     }
 
     const { data: conflitos } = await supabase.rpc("find_conflicts", {
-      p_professional: prof, p_starts: inicio.toISOString(), p_ends: fim.toISOString(),
+      p_professional: prof, p_starts: inicio.toISOString(), p_ends: fim.toISOString(), p_service: svc,
     });
     if (conflitos && conflitos.length > 0) {
       const txt = (conflitos as { patient_name: string; service_name: string; starts_at: string }[])
@@ -435,7 +451,7 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
 
       <div><label className="label">Serviço</label>
         <select className="field w-full" value={svc} onChange={(e) => setSvc(e.target.value)}>
-          {services.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.duration_minutes} min)</option>)}
+          {services.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.duration_minutes} min{s.max_participants > 1 ? `, ${s.max_participants} vagas` : ""})</option>)}
         </select>
       </div>
       <div><label className="label">Profissional</label>
