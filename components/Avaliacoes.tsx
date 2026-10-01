@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { REGIOES, type CifItem } from "@/lib/cif";
+import { buscarPacientes } from "@/lib/busca";
 import {
   CLASSES,
   OXFORD,
@@ -16,11 +17,10 @@ import {
 import {
   classificarGonio,
   cifDaGoniometria,
-  CLASSES as CLASSES_G,
   type LinhaGonio,
 } from "@/lib/goniometria";
 
-type Paciente = { id: string; full_name: string; cpf: string | null };
+type Paciente = { id: string; full_name: string; cpf: string | null; phone?: string | null };
 type Teste = { code: string; name: string; region: string; how: string; suggests: string; sort: number };
 type Grupo = { code: string; name: string; region: string; cif_code: string; sort: number };
 type Avaliacao = {
@@ -49,6 +49,7 @@ const TZ = "America/Sao_Paulo";
 const dataBR = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { timeZone: TZ });
 const hojeISO = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
 const REGIOES_TESTE = REGIOES.filter((r) => r.id !== "geral" && r.id !== "toracica");
+const LIMITE_LISTA = 30;
 
 function Selo({ q }: { q: Qualificador }) {
   const c = CLASSES[q];
@@ -97,16 +98,14 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
 
   const paciente = pacientes.find((p) => p.id === pacienteId) ?? null;
-  const filtrados = useMemo(() => {
-    const t = busca.trim().toLowerCase();
-    return (t ? pacientes.filter((p) => p.full_name.toLowerCase().includes(t) || (p.cpf ?? "").includes(t)) : pacientes).slice(0, 30);
-  }, [pacientes, busca]);
+  const encontrados = useMemo(() => buscarPacientes(pacientes, busca), [pacientes, busca]);
+  const filtrados = encontrados.slice(0, LIMITE_LISTA);
 
   async function carregar(id: string) {
     setCarregando(true);
     const { data } = await supabase
       .from("physical_assessments")
-      .select("id, performed_at, ortho_results, strength_results, cif_items, notes")
+      .select("id, performed_at, ortho_results, strength_results, gonio_results, cif_items, notes")
       .eq("patient_id", id)
       .order("performed_at", { ascending: false });
     setLista((data as Avaliacao[]) ?? []);
@@ -287,11 +286,17 @@ export function Avaliacoes({ clinicId, professionalId, pacientes, testes, grupos
               {filtrados.map((p) => (
                 <li key={p.id}>
                   <button className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-paper" onClick={() => setPacienteId(p.id)}>
-                    {p.full_name}
+                    {p.full_name} {p.cpf && <span className="text-ink/50">· {p.cpf}</span>}
                   </button>
                 </li>
               ))}
             </ul>
+            {encontrados.length === 0 && <p className="mt-2 text-sm text-ink/60">Nenhum paciente encontrado.</p>}
+            {encontrados.length > LIMITE_LISTA && (
+              <p className="mt-2 text-xs text-ink/60">
+                Mostrando {LIMITE_LISTA} de {encontrados.length}. Digite parte do nome para encontrar os demais.
+              </p>
+            )}
           </div>
         )}
       </section>

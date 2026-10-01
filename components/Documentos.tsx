@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CifSeletor } from "@/components/CifSeletor";
 import { PericiaCampos } from "@/components/PericiaCampos";
+import { buscarPacientes, ordenarPorNome } from "@/lib/busca";
 import { INFO_RECURSO, temRecurso, type Recurso, type Recursos } from "@/lib/planos";
 import {
   codigoComQualificador,
@@ -106,7 +107,7 @@ const ehDosCampos = (id: string) => IDS_SOLICITACAO.includes(id) || id.startsWit
 export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, documentos, catalogo, cidadeClinica }: Props) {
   const supabase = createClient();
   const [modo, setModo] = useState<"lista" | "novo">("lista");
-  const [pacientes, setPacientes] = useState<Paciente[]>(pacientesIniciais);
+  const [pacientes, setPacientes] = useState<Paciente[]>(() => ordenarPorNome(pacientesIniciais));
   const [novoPac, setNovoPac] = useState<{ nome: string; cpf: string; nasc: string; tel: string } | null>(null);
   const [salvandoPac, setSalvandoPac] = useState(false);
   const [pericia, setPericia] = useState<Pericia>(PERICIA_INICIAL);
@@ -136,11 +137,8 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
 
   const paciente = pacientes.find((p) => p.id === pacienteId) ?? null;
 
-  const pacientesFiltrados = useMemo(() => {
-    const t = buscaPaciente.trim().toLowerCase();
-    if (!t) return pacientes.slice(0, 30);
-    return pacientes.filter((p) => p.full_name.toLowerCase().includes(t) || (p.cpf ?? "").includes(t)).slice(0, 30);
-  }, [pacientes, buscaPaciente]);
+  const pacientesEncontrados = useMemo(() => buscarPacientes(pacientes, buscaPaciente), [pacientes, buscaPaciente]);
+  const pacientesFiltrados = pacientesEncontrados.slice(0, 30);
 
   const docsFiltrados = useMemo(() => {
     const t = filtro.trim().toLowerCase();
@@ -389,7 +387,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
           : `Não foi possível cadastrar: ${error.message}`
       );
     }
-    setPacientes((ps) => [...ps, data as Paciente].sort((a, b) => a.full_name.localeCompare(b.full_name)));
+    setPacientes((ps) => ordenarPorNome([...ps, data as Paciente]));
     setPacienteId((data as Paciente).id);
     setNovoPac(null);
   }
@@ -589,6 +587,14 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                 </li>
               ))}
             </ul>
+            {pacientesEncontrados.length === 0 && !novoPac && (
+              <p className="mt-2 text-sm text-ink/60">Nenhum paciente encontrado.</p>
+            )}
+            {pacientesEncontrados.length > 30 && (
+              <p className="mt-2 text-xs text-ink/60">
+                Mostrando 30 de {pacientesEncontrados.length}. Digite parte do nome para encontrar os demais.
+              </p>
+            )}
           </div>
         )}
         {paciente && !paciente.cpf && (

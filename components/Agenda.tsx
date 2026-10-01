@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { brl, fmtDateLong, fmtTime, toISODate } from "@/lib/format";
+import { buscarPacientes } from "@/lib/busca";
 import { LembreteWhatsApp } from "@/components/LembreteWhatsApp";
 
 type Prof = { id: string; display_name: string };
@@ -108,9 +109,7 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
   async function salvarEdicao(a: Appt) {
     setSalvandoEdit(true);
     setErroEdit(null);
-    const svcId = editForm.svc || a.services?.name;
     const svcObj = services.find((x) => x.id === editForm.svc) ?? services.find((x) => x.name === a.services?.name);
-    const profId = editForm.prof || professionals.find((x) => x.display_name === a.professionals?.display_name)?.id;
 
     const inicio = new Date(`${editForm.data}T${editForm.hora}:00`);
     const duracao = svcObj ? svcObj.duration_minutes + svcObj.buffer_after_minutes : 50;
@@ -244,7 +243,7 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
                       <Link href={`/painel/pacientes/${a.patient_id}?appt=${a.id}`} className="btn-primary px-2 py-1 text-xs">Evoluir</Link>
                       <button className="btn-ghost px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, "completed")}>Realizado</button>
                       <button className="btn-danger px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, "no_show")}>Faltou</button>
-                      <button className="btn-danger px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, a.status === "pending" ? "cancelled_by_clinic" : "cancelled_by_clinic")}>
+                      <button className="btn-danger px-2 py-1 text-xs" onClick={() => mudarStatus(a.id, "cancelled_by_clinic")}>
                         {a.status === "pending" ? "Recusar" : "Cancelar"}
                       </button>
                       <button className="btn-ghost px-2 py-1 text-xs" onClick={() => abrirEdicao(a)}>Editar</button>
@@ -329,7 +328,7 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
 
 /* ── Novo Atendimento com busca de paciente ─────────────────── */
 
-type PacienteBusca = { id: string; full_name: string; phone: string | null };
+type PacienteBusca = { id: string; full_name: string; phone: string | null; cpf: string | null };
 
 function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSaved }: {
   clinicId: string; dia: Date; professionals: Prof[]; services: Svc[]; onClose: () => void; onSaved: () => void;
@@ -338,8 +337,8 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
 
   // paciente
   const [busca, setBusca] = useState("");
-  const [resultados, setResultados] = useState<PacienteBusca[]>([]);
-  const [buscando, setBuscando] = useState(false);
+  const [todos, setTodos] = useState<PacienteBusca[]>([]);
+  const [carregandoPac, setCarregandoPac] = useState(true);
   const [selecionado, setSelecionado] = useState<PacienteBusca | null>(null);
   const [novoNome, setNovoNome] = useState("");
   const [novoFone, setNovoFone] = useState("");
@@ -353,36 +352,36 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
-  // Buscar pacientes ao digitar (debounce simples)
+  // carrega a lista de pacientes uma vez; a busca é feita na tela, com a mesma regra das outras telas
   useEffect(() => {
-    if (selecionado || modoNovo) return;
-    const t = busca.trim();
-    if (t.length < 2) { setResultados([]); return; }
-    const timer = setTimeout(async () => {
-      setBuscando(true);
+    let ativo = true;
+    (async () => {
       const { data } = await supabase
         .from("patients")
-        .select("id, full_name, phone")
+        .select("id, full_name, phone, cpf")
         .eq("clinic_id", clinicId)
-        .or(`full_name.ilike.%${t}%,phone.ilike.%${t}%`)
         .order("full_name")
-        .limit(8);
-      setResultados((data ?? []) as PacienteBusca[]);
-      setBuscando(false);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [busca, clinicId, selecionado, modoNovo]); // eslint-disable-line react-hooks/exhaustive-deps
+        .limit(1000);
+      if (!ativo) return;
+      setTodos((data ?? []) as PacienteBusca[]);
+      setCarregandoPac(false);
+    })();
+    return () => { ativo = false; };
+  }, [clinicId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const resultados = useMemo(
+    () => (busca.trim().length >= 1 ? buscarPacientes(todos, busca, 8) : []),
+    [todos, busca]
+  );
 
   function escolher(p: PacienteBusca) {
     setSelecionado(p);
     setBusca(p.full_name);
-    setResultados([]);
   }
 
   function limpar() {
     setSelecionado(null);
     setBusca("");
-    setResultados([]);
     setModoNovo(false);
     setNovoNome("");
     setNovoFone("");
@@ -391,7 +390,6 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
   function iniciarNovo() {
     setModoNovo(true);
     setNovoNome(busca.trim());
-    setResultados([]);
   }
 
   async function salvar() {
@@ -478,10 +476,10 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
             className="field w-full"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Digite o nome ou telefone para buscar"
+            placeholder="Digite o nome, CPF ou telefone"
             autoFocus
           />
-          {buscando && <p className="mt-1 text-xs text-ink/50">Buscando...</p>}
+          {carregandoPac && <p className="mt-1 text-xs text-ink/50">Carregando pacientes...</p>}
           {resultados.length > 0 && (
             <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-ink/10 bg-white shadow-lg">
               {resultados.map((p) => (
@@ -498,7 +496,7 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
               ))}
             </ul>
           )}
-          {busca.trim().length >= 2 && !buscando && resultados.length === 0 && (
+          {busca.trim().length >= 1 && !carregandoPac && resultados.length === 0 && (
             <p className="mt-1 text-xs text-ink/50">Nenhum paciente encontrado.</p>
           )}
           <button

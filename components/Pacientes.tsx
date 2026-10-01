@@ -1,23 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { buscarPacientes, ordenarPorNome } from "@/lib/busca";
 
-type P = { id: string; full_name: string; phone: string; birth_date: string | null; tags: string[] | null; sessoes: number; ultimo_atendimento: string | null; ultima_dor: number | null; saldo_pacotes: number };
+type P = { id: string; full_name: string; phone: string | null; cpf?: string | null; birth_date: string | null; tags: string[] | null; sessoes: number; ultimo_atendimento: string | null; ultima_dor: number | null; saldo_pacotes: number };
 
 export function Pacientes({ clinicId, inicial }: { clinicId: string; inicial: P[] }) {
   const supabase = createClient();
-  const [lista, setLista] = useState(inicial);
+  const [lista, setLista] = useState<P[]>(() => ordenarPorNome(inicial));
   const [busca, setBusca] = useState("");
   const [novo, setNovo] = useState(false);
   const [form, setForm] = useState({ full_name: "", phone: "", birth_date: "", cpf: "" });
   const [erro, setErro] = useState<string | null>(null);
 
-  const filtrada = lista.filter((p) => {
-    const q = busca.toLowerCase();
-    return p.full_name.toLowerCase().includes(q) || p.phone.includes(q.replace(/\D/g, "") || "\u0000");
-  });
+  const filtrada = useMemo(() => buscarPacientes(lista, busca), [lista, busca]);
 
   async function salvar() {
     setErro(null);
@@ -27,7 +25,7 @@ export function Pacientes({ clinicId, inicial }: { clinicId: string; inicial: P[
     }).select("id").single();
     if (error) return setErro(error.message.includes("patients_clinic_id_phone_key") ? "Já existe paciente com esse telefone." : error.message);
     const { data: s } = await supabase.from("patient_summary").select("*").eq("id", data!.id).single();
-    if (s) setLista([s as P, ...lista]);
+    if (s) setLista((atual) => ordenarPorNome([...atual, s as P]));
     setNovo(false); setForm({ full_name: "", phone: "", birth_date: "", cpf: "" });
   }
 
@@ -37,9 +35,11 @@ export function Pacientes({ clinicId, inicial }: { clinicId: string; inicial: P[
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="h-title text-3xl">Pacientes</h1>
-            <p className="mt-1 text-ink/70">{lista.length} cadastrados</p>
+            <p className="mt-1 text-ink/70">
+              {lista.length} cadastrados{busca.trim() ? `, ${filtrada.length} encontrados` : ""}
+            </p>
           </div>
-          <input className="field max-w-xs" placeholder="Buscar por nome ou telefone" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <input className="field max-w-xs" placeholder="Buscar por nome, CPF ou telefone" value={busca} onChange={(e) => setBusca(e.target.value)} />
         </div>
         <div className="mt-6 space-y-2">
           {filtrada.length === 0 && <p className="text-sm text-ink/60">Nenhum paciente encontrado.</p>}
@@ -47,7 +47,9 @@ export function Pacientes({ clinicId, inicial }: { clinicId: string; inicial: P[
             <Link key={p.id} href={`/painel/pacientes/${p.id}`} className="grid gap-2 rounded-xl bg-white p-4 hover:ring-2 hover:ring-moss/30 md:grid-cols-[1fr_auto_auto_auto_auto]">
               <div>
                 <p className="font-semibold">{p.full_name}</p>
-                <p className="text-sm text-ink/60">{p.phone}{p.birth_date ? ` · ${idade(p.birth_date)} anos` : ""}</p>
+                <p className="text-sm text-ink/60">
+                  {[p.phone, p.birth_date ? `${idade(p.birth_date)} anos` : ""].filter(Boolean).join(" · ") || "Sem telefone"}
+                </p>
               </div>
               <Stat label="Sessões" valor={String(p.sessoes)} />
               <Stat label="Última EVA" valor={p.ultima_dor == null ? "-" : String(p.ultima_dor)} />
