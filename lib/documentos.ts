@@ -10,6 +10,7 @@ export type TipoDoc =
   | "relatorio"
   | "encaminhamento"
   | "solicitacao"
+  | "prescricao"
   | "parecer"
   | "laudo";
 
@@ -120,6 +121,48 @@ export function novoExame(tipo: TipoExame): ExameSolicitado {
   };
 }
 
+// ---------- Prescrição de medicamentos e fitoterápicos ----------
+
+export type TipoItem = "medicamento" | "fitoterapico";
+
+export type ItemPrescricao = {
+  id: string;
+  tipo: TipoItem;
+  nome: string;
+  via: string;
+  posologia: string;
+  duracao: string;
+};
+
+export type ItemCatalogo = { id: number; kind: TipoItem; name: string; category: string | null; default_route: string | null };
+
+export const VIAS: { id: string; nome: string; titulo: string }[] = [
+  { id: "oral", nome: "Oral", titulo: "Uso oral" },
+  { id: "sublingual", nome: "Sublingual", titulo: "Uso sublingual" },
+  { id: "topica", nome: "Tópica", titulo: "Uso tópico" },
+  { id: "transdermica", nome: "Transdérmica", titulo: "Uso transdérmico" },
+  { id: "intradermica", nome: "Intradérmica", titulo: "Uso intradérmico" },
+  { id: "subcutanea", nome: "Subcutânea", titulo: "Uso subcutâneo" },
+  { id: "intramuscular", nome: "Intramuscular", titulo: "Uso intramuscular" },
+  { id: "intra-articular", nome: "Intra-articular", titulo: "Uso intra-articular" },
+];
+
+export const BASE_LEGAL_PRESCRICAO =
+  "Prescrição realizada por fisioterapeuta no exercício de suas atribuições profissionais, com respaldo no " +
+  "Decreto-Lei nº 938/1969, nos Acórdãos nº 611/2017, nº 636/2023, nº 639/2023 e nº 735/2024 " +
+  "e na Resolução COFFITO nº 607/2025.";
+
+export function novoItem(tipo: TipoItem): ItemPrescricao {
+  return {
+    id: `it-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    tipo,
+    nome: "",
+    via: "oral",
+    posologia: "",
+    duracao: "",
+  };
+}
+
 export type Campos = {
   atendimentoId: string;
   dias: string;
@@ -131,6 +174,7 @@ export type Campos = {
   destinatario: string;
   exames: ExameSolicitado[];
   hipotese: string;
+  itens: ItemPrescricao[];
 };
 
 export type BlocoId = "anamnese" | "avaliacao" | "testes" | "exames" | "condutas" | "evolucao" | "termos";
@@ -250,6 +294,7 @@ export const CAMPOS_INICIAIS: Campos = {
   destinatario: "",
   exames: [],
   hipotese: "",
+  itens: [],
 };
 
 const TZ = "America/Sao_Paulo";
@@ -611,6 +656,48 @@ function gerarSolicitacao(p: Paciente, pr: Prontuario, c: Campos): Secao[] {
   ];
 }
 
+function gerarPrescricao(p: Paciente, c: Campos): Secao[] {
+  const anos = idade(p.birth_date);
+  const ident = [
+    `Paciente: ${p.full_name}${anos !== null ? `, ${anos} anos` : ""}.`,
+    p.cpf ? `CPF: ${p.cpf}.` : "",
+  ].filter(Boolean).join(" ");
+
+  const validos = c.itens.filter((i) => i.nome.trim());
+  const secoes: Secao[] = [{ id: "identificacao", titulo: "", texto: ident }];
+
+  // agrupa por via de administração, na ordem da lista de vias
+  let n = 0;
+  const ordem = [...VIAS.map((v) => v.id), ...Array.from(new Set(validos.map((i) => i.via))).filter((v) => !VIAS.some((x) => x.id === v))];
+  for (const via of ordem) {
+    const lista = validos.filter((i) => i.via === via);
+    if (!lista.length) continue;
+    const titulo = VIAS.find((v) => v.id === via)?.titulo ?? `Uso ${via}`;
+    const texto = lista
+      .map((i) => {
+        n += 1;
+        return [
+          `${n}. ${i.nome.trim()}${i.tipo === "fitoterapico" ? " (fitoterápico)" : ""}`,
+          i.posologia.trim() && `Posologia: ${ponto(maiuscula(i.posologia.trim()))}`,
+          i.duracao.trim() && `Duração do tratamento: ${ponto(i.duracao.trim())}`,
+        ].filter(Boolean).join("\n");
+      })
+      .join("\n\n");
+    secoes.push({ id: `uso-${via}`, titulo, texto });
+  }
+  if (!validos.length) {
+    secoes.push({ id: "uso-vazio", titulo: "Uso oral", texto: "", dica: "Adicione os itens acima. Eles aparecem aqui agrupados pela via de administração." });
+  }
+
+  secoes.push({
+    id: "orientacoes",
+    titulo: "Orientações",
+    texto: "",
+    dica: "Opcional. Ex.: tomar após as refeições; suspender e procurar atendimento em caso de reação alérgica.",
+  });
+  return secoes;
+}
+
 export function gerarSecoes(
   tipo: TipoDoc,
   p: Paciente,
@@ -620,6 +707,7 @@ export function gerarSecoes(
 ): Secao[] {
   if (tipo === "parecer" || tipo === "laudo") return gerarPericia(tipo, p, pr, pe);
   if (tipo === "solicitacao") return gerarSolicitacao(p, pr, c);
+  if (tipo === "prescricao") return gerarPrescricao(p, c);
 
   const at = pr.atendimentos.find((a) => a.id === c.atendimentoId) ?? pr.atendimentos[0];
   const dataAt = at ? dataBR(at.starts_at) : isoParaBR(hojeISO());

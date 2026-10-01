@@ -13,12 +13,14 @@ import {
   type CifItem,
 } from "@/lib/cif";
 import {
+  BASE_LEGAL_PRESCRICAO,
   BLOCOS,
   CAMPOS_INICIAIS,
   EXAMES_IMAGEM,
   EXAMES_LAB,
   FUNCOES,
   LADOS,
+  VIAS,
   PERICIA_INICIAL,
   dataBR,
   gerarSecoes,
@@ -26,15 +28,19 @@ import {
   horaBR,
   isoParaBR,
   novoExame,
+  novoItem,
   type BlocoId,
   type Campos,
   type ExameSolicitado,
+  type ItemCatalogo,
+  type ItemPrescricao,
   type Paciente,
   type Pericia,
   type Prontuario,
   type Secao,
   type TipoDoc,
   type TipoExame,
+  type TipoItem,
 } from "@/lib/documentos";
 
 type Corpo = {
@@ -44,6 +50,8 @@ type Corpo = {
   pericia?: Pericia;
   assinatura_rotulo?: string;
   solicitacao?: { exames: ExameSolicitado[]; hipotese: string };
+  prescricao?: { itens: ItemPrescricao[] };
+  rodape_legal?: string;
 };
 
 type DocLista = {
@@ -73,6 +81,7 @@ const TIPOS: { id: TipoDoc; nome: string; descricao: string }[] = [
   { id: "relatorio", nome: "Relatório fisioterapêutico", descricao: "Resumo do acompanhamento, montado a partir do prontuário." },
   { id: "encaminhamento", nome: "Encaminhamento", descricao: "Para médico ou outro profissional, com resumo clínico." },
   { id: "solicitacao", nome: "Solicitação de exames", descricao: "Exames de imagem e laboratoriais, com justificativa clínica e hipótese diagnóstica." },
+  { id: "prescricao", nome: "Prescrição de medicamentos e fitoterápicos", descricao: "Receituário em branco para preencher, com a base legal do fisioterapeuta no rodapé." },
   { id: "laudo", nome: "Laudo pericial fisioterapêutico", descricao: "Como perito(a) do juízo: processo, exame, nexo, conclusão e quesitos." },
   { id: "parecer", nome: "Parecer técnico fisioterapêutico", descricao: "Como assistente técnico(a) ou a pedido particular, com quesitos." },
 ];
@@ -85,12 +94,14 @@ const RECURSO_DO_TIPO: Partial<Record<TipoDoc, Recurso>> = {
   relatorio: "documentos_clinicos",
   encaminhamento: "documentos_clinicos",
   solicitacao: "documentos_clinicos",
+  prescricao: "pericia",
   laudo: "pericia",
   parecer: "pericia",
 };
 
-// partes da solicitação que são montadas a partir dos campos (não guardar como edição manual)
+// partes montadas a partir dos campos da solicitação e da prescrição (não guardar como edição manual)
 const IDS_SOLICITACAO = ["exames_imagem", "exames_lab", "hipotese"];
+const ehDosCampos = (id: string) => IDS_SOLICITACAO.includes(id) || id.startsWith("uso-");
 
 export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, documentos, catalogo, cidadeClinica }: Props) {
   const supabase = createClient();
@@ -121,6 +132,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
   const [substitui, setSubstitui] = useState<DocLista | null>(null);
   const [emitindo, setEmitindo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [catalogoMed, setCatalogoMed] = useState<ItemCatalogo[]>([]);
 
   const paciente = pacientes.find((p) => p.id === pacienteId) ?? null;
 
@@ -185,6 +197,19 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pacienteId]);
 
+  // catálogo de medicamentos e fitoterápicos, carregado só quando a prescrição é aberta
+  useEffect(() => {
+    if (tipo !== "prescricao" || catalogoMed.length) return;
+    (async () => {
+      const { data } = await supabase
+        .from("medication_catalog")
+        .select("id, kind, name, category, default_route")
+        .order("sort");
+      setCatalogoMed((data as ItemCatalogo[]) ?? []);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipo]);
+
   // partes geradas automaticamente, com as edições do profissional por cima
   const geradas = useMemo(
     () => (paciente && prontuario ? gerarSecoes(tipo, paciente, prontuario, campos, pericia) : []),
@@ -236,6 +261,10 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
     for (const s of anteriores) {
       if (s.id?.startsWith("extra-")) ex.push(s);
       else if (s.id) ed[s.id] = s;
+    }
+    if (d.body?.prescricao) {
+      for (const id of Object.keys(ed)) if (id.startsWith("uso-")) delete ed[id];
+      setCampos({ ...CAMPOS_INICIAIS, itens: d.body.prescricao.itens ?? [] });
     }
     if (d.body?.solicitacao) {
       // os exames e a hipótese voltam para os campos e o texto é remontado a partir deles
@@ -297,9 +326,41 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
     restaurar("exames_lab");
   }
 
+  // ---------- itens da prescrição ----------
+  function limparUsos() {
+    setEditadas((e) => {
+      const n = { ...e };
+      for (const k of Object.keys(n)) if (k.startsWith("uso-")) delete n[k];
+      return n;
+    });
+  }
+
+  function adicionarItem(t: TipoItem) {
+    setCampos((c) => ({ ...c, itens: [...c.itens, novoItem(t)] }));
+    limparUsos();
+  }
+
+  function mudarItem(id: string, mudanca: Partial<ItemPrescricao>) {
+    setCampos((c) => ({ ...c, itens: c.itens.map((i) => (i.id === id ? { ...i, ...mudanca } : i)) }));
+    limparUsos();
+  }
+
+  function escolherNome(it: ItemPrescricao, nome: string) {
+    const doCatalogo = catalogoMed.find((c) => c.name === nome);
+    mudarItem(it.id, doCatalogo
+      ? { nome, tipo: doCatalogo.kind, via: doCatalogo.default_route || it.via }
+      : { nome });
+  }
+
+  function removerItem(id: string) {
+    setCampos((c) => ({ ...c, itens: c.itens.filter((i) => i.id !== id) }));
+    limparUsos();
+  }
+
   const tituloDoc = TIPOS.find((t) => t.id === tipo)?.nome ?? "Documento";
   const ehPericia = tipo === "parecer" || tipo === "laudo";
-  const mostraClinico = tipo !== "declaracao";
+  const ehPrescricao = tipo === "prescricao";
+  const mostraClinico = tipo !== "declaracao" && !ehPrescricao;
 
   async function cadastrarPaciente() {
     if (!novoPac) return;
@@ -340,6 +401,13 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
     if (tipo === "solicitacao" && !examesValidos.length) {
       return setErro("Adicione pelo menos um exame à solicitação.");
     }
+    const itensValidos = campos.itens.filter((i) => i.nome.trim());
+    if (ehPrescricao && !itensValidos.length) {
+      return setErro("Adicione pelo menos um medicamento ou fitoterápico.");
+    }
+    if (ehPrescricao && itensValidos.some((i) => !i.posologia.trim())) {
+      return setErro("Preencha a posologia de todos os itens da prescrição.");
+    }
     const finais = secoes.filter((s) => s.texto.trim());
     if (!finais.length) return setErro("O documento está sem texto.");
     if (cid.trim() && !cidAutorizado) {
@@ -359,6 +427,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
       ...(tipo === "solicitacao"
         ? { solicitacao: { exames: examesValidos, hipotese: campos.hipotese.trim() } }
         : {}),
+      ...(ehPrescricao ? { prescricao: { itens: itensValidos }, rodape_legal: BASE_LEGAL_PRESCRICAO } : {}),
     };
     const { data, error } = await supabase.rpc("issue_document", {
       p_patient: paciente.id,
@@ -381,7 +450,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
           <div>
             <h1 className="h-title text-2xl">Documentos</h1>
             <p className="mt-1 text-sm text-ink/70">
-              Declarações, atestados, relatórios, encaminhamentos e solicitações de exames montados a partir do prontuário.
+              Declarações, atestados, relatórios, encaminhamentos, solicitações de exames e prescrições.
             </p>
           </div>
           <button className="btn-primary" onClick={novoDocumento}>Novo documento</button>
@@ -564,6 +633,9 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                     if (t.id === "parecer" && pericia.funcao === "perito") setPericia((p) => ({ ...p, funcao: "assistente_autor" }));
                     if (t.id === "solicitacao" && campos.exames.length === 0) {
                       setCampos((c) => ({ ...c, exames: [novoExame("imagem")] }));
+                    }
+                    if (t.id === "prescricao" && campos.itens.length === 0) {
+                      setCampos((c) => ({ ...c, itens: [novoItem("medicamento")] }));
                     }
                   }}
                   className={`rounded-lg border p-3 text-left text-sm disabled:opacity-60 ${
@@ -762,6 +834,99 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                   </div>
                 </>
               )}
+              {ehPrescricao && (
+                <div className="space-y-3 md:col-span-2">
+                  <p className="label">Itens da prescrição</p>
+                  {campos.itens.length === 0 && (
+                    <p className="text-xs text-ink/60">Nenhum item na lista. Use os botões abaixo para adicionar.</p>
+                  )}
+                  {campos.itens.map((it, i) => (
+                    <div key={it.id} className="grid gap-3 rounded-lg bg-paper p-3 md:grid-cols-4">
+                      <div>
+                        <label className="label" htmlFor={`tipoit-${it.id}`}>Item {i + 1}: tipo</label>
+                        <select
+                          id={`tipoit-${it.id}`}
+                          className="field w-full"
+                          value={it.tipo}
+                          onChange={(e) => mudarItem(it.id, { tipo: e.target.value as TipoItem })}
+                        >
+                          <option value="medicamento">Medicamento</option>
+                          <option value="fitoterapico">Fitoterápico</option>
+                        </select>
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="label" htmlFor={`nome-${it.id}`}>
+                          {it.tipo === "fitoterapico" ? "Fitoterápico" : "Medicamento"} e apresentação
+                        </label>
+                        <input
+                          id={`nome-${it.id}`}
+                          className="field w-full"
+                          list={it.tipo === "fitoterapico" ? "lista-fitoterapicos" : "lista-medicamentos"}
+                          placeholder="Escolha da lista ou digite"
+                          value={it.nome}
+                          onChange={(e) => escolherNome(it, e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="label" htmlFor={`via-${it.id}`}>Via de administração</label>
+                        <select
+                          id={`via-${it.id}`}
+                          className="field w-full"
+                          value={it.via}
+                          onChange={(e) => mudarItem(it.id, { via: e.target.value })}
+                        >
+                          {VIAS.map((v) => (
+                            <option key={v.id} value={v.id}>{v.nome}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="md:col-span-3">
+                        <label className="label" htmlFor={`pos-${it.id}`}>Posologia</label>
+                        <input
+                          id={`pos-${it.id}`}
+                          className="field w-full"
+                          placeholder="Escreva a dose, a frequência e a forma de uso"
+                          value={it.posologia}
+                          onChange={(e) => mudarItem(it.id, { posologia: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="label" htmlFor={`dur-${it.id}`}>Duração</label>
+                        <input
+                          id={`dur-${it.id}`}
+                          className="field w-full"
+                          placeholder="Ex.: 7 dias"
+                          value={it.duracao}
+                          onChange={(e) => mudarItem(it.id, { duracao: e.target.value })}
+                        />
+                      </div>
+                      <div className="md:col-span-4">
+                        <button className="text-sm text-danger" onClick={() => removerItem(it.id)}>
+                          Remover item
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap gap-2">
+                    <button className="btn-ghost text-sm" onClick={() => adicionarItem("medicamento")}>
+                      Adicionar medicamento
+                    </button>
+                    <button className="btn-ghost text-sm" onClick={() => adicionarItem("fitoterapico")}>
+                      Adicionar fitoterápico
+                    </button>
+                  </div>
+                  <datalist id="lista-medicamentos">
+                    {catalogoMed.filter((c) => c.kind === "medicamento").map((c) => <option key={c.id} value={c.name} />)}
+                  </datalist>
+                  <datalist id="lista-fitoterapicos">
+                    {catalogoMed.filter((c) => c.kind === "fitoterapico").map((c) => <option key={c.id} value={c.name} />)}
+                  </datalist>
+                  <p className="text-xs text-ink/60">
+                    A lista é só um atalho de preenchimento. A escolha, a dose e o respeito aos limites legais da prescrição
+                    são de responsabilidade do profissional. A base legal sai automaticamente no rodapé do documento.
+                  </p>
+                </div>
+              )}
             </div>
           </section>
 
@@ -816,7 +981,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
               {secoes.map((s) => {
                 const extra = s.id.startsWith("extra-");
                 const alterada = !!editadas[s.id];
-                const daLista = IDS_SOLICITACAO.includes(s.id);
+                const daLista = ehDosCampos(s.id);
                 return (
                   <div key={s.id}>
                     {(s.titulo || extra) && (
@@ -905,6 +1070,9 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                 </div>
               )}
               <p className="text-right">{[cidadeClinica, isoParaBR(hojeISO())].filter(Boolean).join(", ")}.</p>
+              {ehPrescricao && (
+                <p className="border-t border-ink/10 pt-2 text-xs text-ink/60">{BASE_LEGAL_PRESCRICAO}</p>
+              )}
               <p className="text-center text-xs text-ink/60">Cabeçalho, assinatura e carimbo entram automaticamente a partir de Meus dados.</p>
             </div>
           </section>

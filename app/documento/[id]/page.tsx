@@ -24,6 +24,7 @@ type Corpo = {
   secoes: { titulo: string; texto: string }[];
   cid?: string | null;
   cid_autorizado?: boolean;
+  rodape_legal?: string;
 };
 
 const TZ = "America/Sao_Paulo";
@@ -161,6 +162,12 @@ export default async function DocumentoPage({ params }: { params: Promise<{ id: 
             {snap.professional.titles && <p className="text-[9.5pt]">{snap.professional.titles}</p>}
           </div>
         </div>
+
+        {corpo.rodape_legal && (
+          <p className="mt-8 border-t border-black/20 pt-2 text-justify text-[8.5pt] leading-snug text-black/70 break-inside-avoid">
+            {corpo.rodape_legal}
+          </p>
+        )}
 
         <footer className="mt-auto flex items-end gap-3 pt-10 text-[8pt] text-black/60 break-inside-avoid">
           <div
