@@ -15,20 +15,26 @@ import {
 import {
   BLOCOS,
   CAMPOS_INICIAIS,
+  EXAMES_IMAGEM,
+  EXAMES_LAB,
   FUNCOES,
+  LADOS,
   PERICIA_INICIAL,
   dataBR,
   gerarSecoes,
   hojeISO,
   horaBR,
   isoParaBR,
+  novoExame,
   type BlocoId,
   type Campos,
+  type ExameSolicitado,
   type Paciente,
   type Pericia,
   type Prontuario,
   type Secao,
   type TipoDoc,
+  type TipoExame,
 } from "@/lib/documentos";
 
 type Corpo = {
@@ -37,6 +43,7 @@ type Corpo = {
   cid_autorizado?: boolean;
   pericia?: Pericia;
   assinatura_rotulo?: string;
+  solicitacao?: { exames: ExameSolicitado[]; hipotese: string };
 };
 
 type DocLista = {
@@ -65,6 +72,7 @@ const TIPOS: { id: TipoDoc; nome: string; descricao: string }[] = [
   { id: "atestado", nome: "Atestado", descricao: "Afastamento ou aptidão funcional por um período." },
   { id: "relatorio", nome: "Relatório fisioterapêutico", descricao: "Resumo do acompanhamento, montado a partir do prontuário." },
   { id: "encaminhamento", nome: "Encaminhamento", descricao: "Para médico ou outro profissional, com resumo clínico." },
+  { id: "solicitacao", nome: "Solicitação de exames", descricao: "Exames de imagem e laboratoriais, com justificativa clínica e hipótese diagnóstica." },
   { id: "laudo", nome: "Laudo pericial fisioterapêutico", descricao: "Como perito(a) do juízo: processo, exame, nexo, conclusão e quesitos." },
   { id: "parecer", nome: "Parecer técnico fisioterapêutico", descricao: "Como assistente técnico(a) ou a pedido particular, com quesitos." },
 ];
@@ -76,9 +84,13 @@ const TODOS_BLOCOS: Record<BlocoId, boolean> = {
 const RECURSO_DO_TIPO: Partial<Record<TipoDoc, Recurso>> = {
   relatorio: "documentos_clinicos",
   encaminhamento: "documentos_clinicos",
+  solicitacao: "documentos_clinicos",
   laudo: "pericia",
   parecer: "pericia",
 };
+
+// partes da solicitação que são montadas a partir dos campos (não guardar como edição manual)
+const IDS_SOLICITACAO = ["exames_imagem", "exames_lab", "hipotese"];
 
 export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, documentos, catalogo, cidadeClinica }: Props) {
   const supabase = createClient();
@@ -225,6 +237,15 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
       if (s.id?.startsWith("extra-")) ex.push(s);
       else if (s.id) ed[s.id] = s;
     }
+    if (d.body?.solicitacao) {
+      // os exames e a hipótese voltam para os campos e o texto é remontado a partir deles
+      for (const id of IDS_SOLICITACAO) delete ed[id];
+      setCampos({
+        ...CAMPOS_INICIAIS,
+        exames: d.body.solicitacao.exames ?? [],
+        hipotese: d.body.solicitacao.hipotese ?? "",
+      });
+    }
     setEditadas(ed);
     setExtras(ex);
     setBlocos({
@@ -256,6 +277,24 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
 
   function adicionarParte() {
     setExtras((xs) => [...xs, { id: `extra-${Date.now()}`, titulo: "Nova parte", texto: "" }]);
+  }
+
+  // ---------- exames da solicitação ----------
+  function adicionarExame(t: TipoExame) {
+    setCampos((c) => ({ ...c, exames: [...c.exames, novoExame(t)] }));
+  }
+
+  function mudarExame(id: string, mudanca: Partial<ExameSolicitado>) {
+    setCampos((c) => ({ ...c, exames: c.exames.map((e) => (e.id === id ? { ...e, ...mudanca } : e)) }));
+    // a lista foi alterada: o texto volta a ser montado a partir dos campos
+    restaurar("exames_imagem");
+    restaurar("exames_lab");
+  }
+
+  function removerExame(id: string) {
+    setCampos((c) => ({ ...c, exames: c.exames.filter((e) => e.id !== id) }));
+    restaurar("exames_imagem");
+    restaurar("exames_lab");
   }
 
   const tituloDoc = TIPOS.find((t) => t.id === tipo)?.nome ?? "Documento";
@@ -297,6 +336,10 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
   async function emitir() {
     setErro(null);
     if (!paciente) return setErro("Escolha o paciente.");
+    const examesValidos = campos.exames.filter((e) => e.exame.trim());
+    if (tipo === "solicitacao" && !examesValidos.length) {
+      return setErro("Adicione pelo menos um exame à solicitação.");
+    }
     const finais = secoes.filter((s) => s.texto.trim());
     if (!finais.length) return setErro("O documento está sem texto.");
     if (cid.trim() && !cidAutorizado) {
@@ -312,6 +355,9 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
       cid_autorizado: cid.trim() ? cidAutorizado : false,
       ...(ehPericia
         ? { pericia, assinatura_rotulo: FUNCOES.find((f) => f.id === pericia.funcao)?.assinatura ?? "Fisioterapeuta" }
+        : {}),
+      ...(tipo === "solicitacao"
+        ? { solicitacao: { exames: examesValidos, hipotese: campos.hipotese.trim() } }
         : {}),
     };
     const { data, error } = await supabase.rpc("issue_document", {
@@ -335,7 +381,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
           <div>
             <h1 className="h-title text-2xl">Documentos</h1>
             <p className="mt-1 text-sm text-ink/70">
-              Declarações, atestados, relatórios e encaminhamentos montados a partir do prontuário.
+              Declarações, atestados, relatórios, encaminhamentos e solicitações de exames montados a partir do prontuário.
             </p>
           </div>
           <button className="btn-primary" onClick={novoDocumento}>Novo documento</button>
@@ -516,6 +562,9 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                     setExtras([]);
                     if (t.id === "laudo") setPericia((p) => ({ ...p, funcao: "perito" }));
                     if (t.id === "parecer" && pericia.funcao === "perito") setPericia((p) => ({ ...p, funcao: "assistente_autor" }));
+                    if (t.id === "solicitacao" && campos.exames.length === 0) {
+                      setCampos((c) => ({ ...c, exames: [novoExame("imagem")] }));
+                    }
                   }}
                   className={`rounded-lg border p-3 text-left text-sm disabled:opacity-60 ${
                     tipo === t.id ? "border-ink bg-paper" : "border-ink/15"
@@ -595,6 +644,124 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                   </div>
                 </>
               )}
+              {tipo === "solicitacao" && (
+                <>
+                  <div className="space-y-3 md:col-span-2">
+                    <p className="label">Exames solicitados</p>
+                    {campos.exames.length === 0 && (
+                      <p className="text-xs text-ink/60">Nenhum exame na lista. Use os botões abaixo para adicionar.</p>
+                    )}
+                    {campos.exames.map((ex, i) => (
+                      <div key={ex.id} className="grid gap-3 rounded-lg bg-paper p-3 md:grid-cols-4">
+                        <div>
+                          <label className="label" htmlFor={`tipo-${ex.id}`}>Exame {i + 1}: tipo</label>
+                          <select
+                            id={`tipo-${ex.id}`}
+                            className="field w-full"
+                            value={ex.tipo}
+                            onChange={(e) => {
+                              const t = e.target.value as TipoExame;
+                              mudarExame(ex.id, t === "laboratorial" ? { tipo: t, regiao: "", lado: "" } : { tipo: t });
+                            }}
+                          >
+                            <option value="imagem">Imagem</option>
+                            <option value="laboratorial">Laboratorial</option>
+                          </select>
+                        </div>
+                        <div className={ex.tipo === "imagem" ? "" : "md:col-span-3"}>
+                          <label className="label" htmlFor={`exame-${ex.id}`}>Exame</label>
+                          <input
+                            id={`exame-${ex.id}`}
+                            className="field w-full"
+                            list={ex.tipo === "imagem" ? "lista-exames-imagem" : "lista-exames-lab"}
+                            placeholder={ex.tipo === "imagem" ? "Escolha ou digite" : "Escolha ou digite"}
+                            value={ex.exame}
+                            onChange={(e) => mudarExame(ex.id, { exame: e.target.value })}
+                          />
+                        </div>
+                        {ex.tipo === "imagem" && (
+                          <>
+                            <div>
+                              <label className="label" htmlFor={`regiao-${ex.id}`}>Região</label>
+                              <input
+                                id={`regiao-${ex.id}`}
+                                className="field w-full"
+                                placeholder="Ex.: joelho"
+                                value={ex.regiao}
+                                onChange={(e) => mudarExame(ex.id, { regiao: e.target.value })}
+                              />
+                            </div>
+                            <div>
+                              <label className="label" htmlFor={`lado-${ex.id}`}>Lado</label>
+                              <select
+                                id={`lado-${ex.id}`}
+                                className="field w-full"
+                                value={ex.lado}
+                                onChange={(e) => mudarExame(ex.id, { lado: e.target.value })}
+                              >
+                                {LADOS.map((l) => (
+                                  <option key={l.id} value={l.id}>{l.nome}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        )}
+                        <div className="md:col-span-4">
+                          <label className="label" htmlFor={`just-${ex.id}`}>Justificativa clínica</label>
+                          <textarea
+                            id={`just-${ex.id}`}
+                            className="field w-full"
+                            rows={2}
+                            placeholder={
+                              ex.tipo === "imagem"
+                                ? "Ex.: dor no joelho há 3 meses, McMurray positivo, investigar lesão meniscal."
+                                : "Ex.: dor difusa e fadiga, investigar processo inflamatório e deficiência de vitamina D."
+                            }
+                            value={ex.justificativa}
+                            onChange={(e) => mudarExame(ex.id, { justificativa: e.target.value })}
+                          />
+                        </div>
+                        <div className="md:col-span-4">
+                          <button className="text-sm text-danger" onClick={() => removerExame(ex.id)}>
+                            Remover exame
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap gap-2">
+                      <button className="btn-ghost text-sm" onClick={() => adicionarExame("imagem")}>
+                        Adicionar exame de imagem
+                      </button>
+                      <button className="btn-ghost text-sm" onClick={() => adicionarExame("laboratorial")}>
+                        Adicionar exame laboratorial
+                      </button>
+                    </div>
+                    <datalist id="lista-exames-imagem">
+                      {EXAMES_IMAGEM.map((e) => <option key={e} value={e} />)}
+                    </datalist>
+                    <datalist id="lista-exames-lab">
+                      {EXAMES_LAB.map((e) => <option key={e} value={e} />)}
+                    </datalist>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="label" htmlFor="hipotese">Hipótese diagnóstica</label>
+                    <textarea
+                      id="hipotese"
+                      className="field w-full"
+                      rows={2}
+                      placeholder="Ex.: disfunção cinesiológica funcional do joelho direito, compatível com lesão meniscal medial."
+                      value={campos.hipotese}
+                      onChange={(e) => {
+                        setCampos({ ...campos, hipotese: e.target.value });
+                        restaurar("hipotese");
+                      }}
+                    />
+                    <p className="mt-1 text-xs text-ink/60">
+                      Se quiser o CID junto, use o campo CID mais abaixo (exige autorização do paciente).
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
@@ -649,6 +816,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
               {secoes.map((s) => {
                 const extra = s.id.startsWith("extra-");
                 const alterada = !!editadas[s.id];
+                const daLista = IDS_SOLICITACAO.includes(s.id);
                 return (
                   <div key={s.id}>
                     {(s.titulo || extra) && (
@@ -669,9 +837,9 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                       placeholder={s.dica ?? (s.titulo ? `Escreva aqui: ${s.titulo.toLowerCase()}` : "")}
                       onChange={(e) => editar(s, { texto: e.target.value })}
                     />
-                    {alterada && s.bloco && (
+                    {alterada && (s.bloco || daLista) && (
                       <button className="mt-1 text-xs text-ink/60 underline underline-offset-4" onClick={() => restaurar(s.id)}>
-                        Voltar ao texto do prontuário
+                        {daLista ? "Voltar ao texto montado pelos campos" : "Voltar ao texto do prontuário"}
                       </button>
                     )}
                   </div>

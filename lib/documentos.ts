@@ -4,7 +4,14 @@
 import { textoForca, textoOrto, type LinhaForca, type ResultadoOrto } from "./forca";
 import { textoGoniometria, type LinhaGonio } from "./goniometria";
 
-export type TipoDoc = "declaracao" | "atestado" | "relatorio" | "encaminhamento" | "parecer" | "laudo";
+export type TipoDoc =
+  | "declaracao"
+  | "atestado"
+  | "relatorio"
+  | "encaminhamento"
+  | "solicitacao"
+  | "parecer"
+  | "laudo";
 
 export type Paciente = { id: string; full_name: string; cpf: string | null; birth_date: string | null };
 
@@ -47,6 +54,72 @@ export type Prontuario = {
   termos: Termo[];
 };
 
+// ---------- Solicitação de exames ----------
+
+export type TipoExame = "imagem" | "laboratorial";
+
+export type ExameSolicitado = {
+  id: string;
+  tipo: TipoExame;
+  exame: string;
+  regiao: string;
+  lado: string;
+  justificativa: string;
+};
+
+export const EXAMES_IMAGEM = [
+  "Radiografia (RX)",
+  "Radiografia panorâmica de membros inferiores",
+  "Ultrassonografia (US)",
+  "Ultrassonografia com Doppler",
+  "Ressonância magnética (RM)",
+  "Tomografia computadorizada (TC)",
+  "Densitometria óssea",
+  "Eletroneuromiografia (ENMG)",
+  "Cintilografia óssea",
+];
+
+export const EXAMES_LAB = [
+  "Hemograma completo",
+  "Proteína C reativa (PCR)",
+  "Velocidade de hemossedimentação (VHS)",
+  "Vitamina D (25-hidroxivitamina D)",
+  "Vitamina B12",
+  "Ferritina",
+  "Ferro sérico",
+  "Creatinoquinase (CK)",
+  "Ácido úrico",
+  "Fator reumatoide",
+  "Glicemia de jejum",
+  "Hemoglobina glicada (HbA1c)",
+  "TSH e T4 livre",
+  "Magnésio",
+  "Cálcio",
+  "Zinco",
+  "Perfil lipídico",
+  "Creatinina",
+  "TGO e TGP",
+  "Coagulograma (TAP e TTPA)",
+];
+
+export const LADOS = [
+  { id: "", nome: "Não se aplica" },
+  { id: "lado direito", nome: "Direito" },
+  { id: "lado esquerdo", nome: "Esquerdo" },
+  { id: "bilateral", nome: "Bilateral" },
+];
+
+export function novoExame(tipo: TipoExame): ExameSolicitado {
+  return {
+    id: `ex-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    tipo,
+    exame: "",
+    regiao: "",
+    lado: "",
+    justificativa: "",
+  };
+}
+
 export type Campos = {
   atendimentoId: string;
   dias: string;
@@ -56,6 +129,8 @@ export type Campos = {
   especialidade: string;
   motivo: string;
   destinatario: string;
+  exames: ExameSolicitado[];
+  hipotese: string;
 };
 
 export type BlocoId = "anamnese" | "avaliacao" | "testes" | "exames" | "condutas" | "evolucao" | "termos";
@@ -69,10 +144,10 @@ export type Secao = {
 };
 
 export const BLOCOS: { id: BlocoId; nome: string; tipos: TipoDoc[] }[] = [
-  { id: "anamnese", nome: "Anamnese", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
-  { id: "avaliacao", nome: "Avaliação e exame físico", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
-  { id: "testes", nome: "Testes ortopédicos e força muscular", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
-  { id: "exames", nome: "Exames e imagens anexados", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
+  { id: "anamnese", nome: "Anamnese", tipos: ["relatorio", "encaminhamento", "solicitacao", "parecer", "laudo"] },
+  { id: "avaliacao", nome: "Avaliação e exame físico", tipos: ["relatorio", "encaminhamento", "solicitacao", "parecer", "laudo"] },
+  { id: "testes", nome: "Testes ortopédicos e força muscular", tipos: ["relatorio", "encaminhamento", "solicitacao", "parecer", "laudo"] },
+  { id: "exames", nome: "Exames e imagens anexados", tipos: ["relatorio", "encaminhamento", "solicitacao", "parecer", "laudo"] },
   { id: "condutas", nome: "Sessões e procedimentos", tipos: ["relatorio", "parecer"] },
   { id: "evolucao", nome: "Evolução e escala de dor", tipos: ["relatorio", "encaminhamento", "parecer", "laudo"] },
   { id: "termos", nome: "Termos de consentimento assinados", tipos: ["relatorio"] },
@@ -173,6 +248,8 @@ export const CAMPOS_INICIAIS: Campos = {
   especialidade: "",
   motivo: "",
   destinatario: "",
+  exames: [],
+  hipotese: "",
 };
 
 const TZ = "America/Sao_Paulo";
@@ -198,6 +275,7 @@ function textoResposta(v: unknown, tipo?: string) {
 }
 
 const ponto = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
+const maiuscula = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 export function nomesProcedimentos(p: unknown): string[] {
   if (!p) return [];
@@ -304,6 +382,21 @@ function textoTestes(a: AvaliacaoFisica | null | undefined) {
   if (!partes.length) return "";
   return [`Avaliação realizada em ${dataBR(a.performed_at)}.`, ...partes, a.notes?.trim() ? `Observações: ${ponto(a.notes.trim())}` : ""]
     .filter(Boolean).join("\n");
+}
+
+// Lista numerada de exames com região e justificativa de cada um
+export function textoListaExames(lista: ExameSolicitado[]) {
+  return lista
+    .filter((e) => e.exame.trim())
+    .map((e, i) => {
+      const alvo = e.tipo === "imagem" ? [e.regiao.trim(), e.lado].filter(Boolean).join(", ") : "";
+      return [
+        `${i + 1}. ${ponto(e.exame.trim())}`,
+        alvo && `Região: ${ponto(alvo)}`,
+        e.justificativa.trim() && `Justificativa clínica: ${ponto(e.justificativa.trim())}`,
+      ].filter(Boolean).join("\n");
+    })
+    .join("\n\n");
 }
 
 function intercorrencias(): Secao {
@@ -477,6 +570,47 @@ function gerarPericia(tipo: "parecer" | "laudo", p: Paciente, pr: Prontuario, pe
   return secoes;
 }
 
+function gerarSolicitacao(p: Paciente, pr: Prontuario, c: Campos): Secao[] {
+  const notas = pr.notas;
+  const anos = idade(p.birth_date);
+  const validos = c.exames.filter((e) => e.exame.trim());
+  const imagem = validos.filter((e) => e.tipo === "imagem");
+  const lab = validos.filter((e) => e.tipo === "laboratorial");
+
+  const ident = [
+    `Paciente: ${p.full_name}${anos !== null ? `, ${anos} anos` : ""}.`,
+    p.cpf ? `CPF: ${p.cpf}.` : "",
+  ].filter(Boolean).join(" ");
+
+  const pedido =
+    validos.length === 1
+      ? "Solicito, para complementação da avaliação fisioterapêutica e definição da conduta terapêutica, a realização do exame relacionado abaixo."
+      : "Solicito, para complementação da avaliação fisioterapêutica e definição da conduta terapêutica, a realização dos exames relacionados abaixo.";
+
+  return [
+    { id: "identificacao", titulo: "", texto: ident },
+    { id: "principal", titulo: "", texto: pedido },
+    { id: "exames_imagem", titulo: "Exames de imagem", texto: textoListaExames(imagem) },
+    { id: "exames_lab", titulo: "Exames laboratoriais", texto: textoListaExames(lab) },
+    {
+      id: "hipotese",
+      titulo: "Hipótese diagnóstica",
+      texto: c.hipotese.trim() ? ponto(maiuscula(c.hipotese.trim())) : "",
+      dica: "Ex.: disfunção cinesiológica funcional do joelho direito, compatível com lesão meniscal medial.",
+    },
+    { id: "anamnese", titulo: "Histórico clínico", bloco: "anamnese", texto: textoAnamnese(pr.anamnese, ["queixa", "inicio", "local", "tratamentos"]) },
+    { id: "avaliacao", titulo: "Achados da avaliação fisioterapêutica", bloco: "avaliacao", texto: textoAvaliacao(notas[0]) },
+    { id: "testes", titulo: "Testes ortopédicos e força muscular", bloco: "testes", texto: textoTestes(pr.avaliacaoFisica) },
+    { id: "exames", titulo: "Exames anteriores", bloco: "exames", texto: textoExames(pr) },
+    {
+      id: "observacoes",
+      titulo: "Observações",
+      texto: "",
+      dica: "Opcional. Ex.: jejum de 8 horas para os exames laboratoriais; trazer os resultados na próxima sessão.",
+    },
+  ];
+}
+
 export function gerarSecoes(
   tipo: TipoDoc,
   p: Paciente,
@@ -485,6 +619,7 @@ export function gerarSecoes(
   pe: Pericia = PERICIA_INICIAL
 ): Secao[] {
   if (tipo === "parecer" || tipo === "laudo") return gerarPericia(tipo, p, pr, pe);
+  if (tipo === "solicitacao") return gerarSolicitacao(p, pr, c);
 
   const at = pr.atendimentos.find((a) => a.id === c.atendimentoId) ?? pr.atendimentos[0];
   const dataAt = at ? dataBR(at.starts_at) : isoParaBR(hojeISO());
