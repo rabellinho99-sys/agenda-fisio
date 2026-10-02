@@ -25,6 +25,8 @@ export async function GET(req: NextRequest) {
     supabase.from("clinic_members").select("clinic_id").eq("user_id", user.id).eq("active", true).limit(1).maybeSingle(),
   ]);
 
+  let cadastroNovo = false;
+
   if (!aceiteExistente) {
     if (aceitou) {
       await supabase.from("terms_acceptances").insert({
@@ -34,11 +36,18 @@ export async function GET(req: NextRequest) {
         user_agent: (req.headers.get("user-agent") ?? "").slice(0, 500),
         source: "google",
       });
+      // conta nova criada agora pelo Google (sem clínica ainda)
+      if (!membro) cadastroNovo = true;
     } else if (!membro) {
       // conta nova criada pelo Google sem marcar o aceite: volta para o cadastro
       await supabase.auth.signOut();
       return NextResponse.redirect(`${origin}/entrar?modo=cadastro&erro=termos`);
     }
+  }
+
+  // Cadastro novo passa pela tela de boas-vindas, que registra o cadastro no pixel da Meta
+  if (cadastroNovo) {
+    return NextResponse.redirect(`${origin}/bem-vindo?m=google&next=/onboarding`);
   }
 
   return NextResponse.redirect(`${origin}${membro ? "/painel" : "/onboarding"}`);

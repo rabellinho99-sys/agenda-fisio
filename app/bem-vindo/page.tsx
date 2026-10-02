@@ -5,15 +5,18 @@ import { useRouter } from "next/navigation";
 import { rastrearCadastro } from "@/lib/metaPixel";
 
 // Página de passagem logo após o cadastro.
-// Registra o evento de cadastro no pixel da Meta e leva ao painel.
+// Registra o evento de cadastro no pixel da Meta e leva ao onboarding (ou ao painel).
 export default function BemVindo() {
   const router = useRouter();
 
   useEffect(() => {
     let metodo: "email" | "google" = "email";
+    let destino = "/painel";
     try {
-      const m = new URLSearchParams(window.location.search).get("m");
-      if (m === "google") metodo = "google";
+      const q = new URLSearchParams(window.location.search);
+      if (q.get("m") === "google") metodo = "google";
+      // só aceita destinos internos conhecidos
+      if (q.get("next") === "/onboarding") destino = "/onboarding";
     } catch {}
 
     // espera o pixel carregar antes de registrar o cadastro
@@ -30,7 +33,7 @@ export default function BemVindo() {
         } catch {
           rastrearCadastro(metodo);
         }
-        setTimeout(() => router.replace("/painel"), 400);
+        setTimeout(() => router.replace(destino), 400);
       }
     }, 150);
 

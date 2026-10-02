@@ -51,7 +51,8 @@ function EntrarForm() {
       });
       setCarregando(false);
       if (error) return setErro(traduz(error.message));
-      if (data.session) return router.push("/onboarding");
+      // Conta criada: passa pela tela de boas-vindas, que registra o cadastro no pixel da Meta
+      if (data.session) return router.push("/bem-vindo?m=email&next=/onboarding");
       return setAviso("Enviamos um link de confirmação para o seu e-mail. Abra o link para continuar.");
     }
 
