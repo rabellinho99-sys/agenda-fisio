@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { PwaRegister } from "@/components/PwaRegister";
+import { MetaPixel } from "@/components/MetaPixel";
 
 export const metadata: Metadata = {
   title: "Agenda Fisio Pro",
@@ -44,6 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-screen">
         <PwaRegister />
+        <MetaPixel />
         {children}
       </body>
     </html>
