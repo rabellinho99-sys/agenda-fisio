@@ -25,9 +25,13 @@ type Corpo = {
   cid?: string | null;
   cid_autorizado?: boolean;
   rodape_legal?: string;
+  recibo?: { total_cents?: number };
 };
 
 const TZ = "America/Sao_Paulo";
+
+const reais = (c: number) =>
+  (c / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/\u00a0/g, " ");
 
 export default async function DocumentoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -80,6 +84,8 @@ export default async function DocumentoPage({ params }: { params: Promise<{ id: 
   const dataExtenso = emitido.toLocaleDateString("pt-BR", { timeZone: TZ, day: "numeric", month: "long", year: "numeric" });
   const dataHora = emitido.toLocaleString("pt-BR", { timeZone: TZ });
 
+  const totalRecibo = corpo.recibo?.total_cents ?? 0;
+
   return (
     <main className="min-h-screen bg-paper py-8 print:bg-white print:py-0">
       <style>{`
@@ -110,6 +116,12 @@ export default async function DocumentoPage({ params }: { params: Promise<{ id: 
         </header>
 
         <h1 className="mt-8 text-center text-[13pt] font-bold uppercase tracking-wide">{doc.title}</h1>
+
+        {totalRecibo > 0 && (
+          <p className="mx-auto mt-4 rounded border border-black/40 px-6 py-2 text-center text-[14pt] font-bold">
+            Valor: {reais(totalRecibo)}
+          </p>
+        )}
 
         <div className="mt-6 space-y-4 text-justify">
           {corpo.secoes

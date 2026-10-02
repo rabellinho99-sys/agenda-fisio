@@ -7,6 +7,7 @@ import { textoGoniometria, type LinhaGonio } from "./goniometria";
 export type TipoDoc =
   | "declaracao"
   | "atestado"
+  | "recibo"
   | "relatorio"
   | "encaminhamento"
   | "solicitacao"
@@ -163,6 +164,134 @@ export function novoItem(tipo: TipoItem): ItemPrescricao {
   };
 }
 
+// ---------- Recibo ----------
+
+export type ItemRecibo = {
+  id: string;
+  data: string; // AAAA-MM-DD
+  descricao: string;
+  valor: string; // como digitado, ex.: "150,00"
+};
+
+export type DadosRecibo = {
+  de: string;
+  ate: string;
+  itens: ItemRecibo[];
+  referente: string;
+  pagadorOutro: boolean;
+  pagadorNome: string;
+  pagadorCpf: string;
+  forma: string;
+  dataRecebimento: string;
+};
+
+export const RECIBO_INICIAL: DadosRecibo = {
+  de: "",
+  ate: "",
+  itens: [],
+  referente: "atendimentos fisioterapêuticos",
+  pagadorOutro: false,
+  pagadorNome: "",
+  pagadorCpf: "",
+  forma: "Pix",
+  dataRecebimento: "",
+};
+
+export const FORMAS_PAGAMENTO = [
+  "Pix",
+  "Dinheiro",
+  "Cartão de débito",
+  "Cartão de crédito",
+  "Transferência bancária",
+  "Boleto",
+];
+
+// partes do recibo montadas a partir dos campos
+export const IDS_RECIBO = ["recibo_principal", "recibo_itens", "recibo_pagamento"];
+
+export function novoItemRecibo(data = "", descricao = "", valor = ""): ItemRecibo {
+  return {
+    id: `rc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    data,
+    descricao,
+    valor,
+  };
+}
+
+// "1.250,50" | "150" | "R$ 80,00" -> centavos
+export function centavos(valor: string): number {
+  const limpo = (valor || "").replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", ".");
+  const n = Number(limpo);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
+}
+
+export function centavosParaCampo(c: number): string {
+  return (c / 100).toFixed(2).replace(".", ",");
+}
+
+export function formatarReais(c: number): string {
+  return (c / 100)
+    .toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+    .replace(/\u00a0/g, " ");
+}
+
+export function totalRecibo(itens: ItemRecibo[]): number {
+  return itens.reduce((s, i) => s + centavos(i.valor), 0);
+}
+
+const UNIDADES = [
+  "", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove",
+  "dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove",
+];
+const DEZENAS = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa"];
+const CENTENAS = [
+  "", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos",
+  "seiscentos", "setecentos", "oitocentos", "novecentos",
+];
+
+function ate999(n: number): string {
+  if (n === 0) return "";
+  if (n === 100) return "cem";
+  const c = Math.floor(n / 100);
+  const r = n % 100;
+  let resto = "";
+  if (r < 20) resto = UNIDADES[r];
+  else resto = DEZENAS[Math.floor(r / 10)] + (r % 10 ? ` e ${UNIDADES[r % 10]}` : "");
+  return [CENTENAS[c], resto].filter(Boolean).join(" e ");
+}
+
+function inteiroPorExtenso(n: number): string {
+  if (n === 0) return "zero";
+  const milhoes = Math.floor(n / 1_000_000);
+  const milhares = Math.floor((n % 1_000_000) / 1000);
+  const resto = n % 1000;
+  const partes: string[] = [];
+  if (milhoes) partes.push(milhoes === 1 ? "um milhão" : `${ate999(milhoes)} milhões`);
+  if (milhares) partes.push(milhares === 1 ? "mil" : `${ate999(milhares)} mil`);
+  if (resto) partes.push(ate999(resto));
+  if (partes.length === 1) return partes[0];
+  const ultimo = partes.pop() as string;
+  const usaE = resto ? resto < 100 || resto % 100 === 0 : milhares < 100 || milhares % 100 === 0;
+  return `${partes.join(" ")}${usaE ? " e " : " "}${ultimo}`;
+}
+
+export function valorPorExtenso(c: number): string {
+  const reais = Math.floor(c / 100);
+  const cents = c % 100;
+  const partes: string[] = [];
+  if (reais) {
+    const texto = inteiroPorExtenso(reais);
+    const exatoMilhao = reais >= 1_000_000 && reais % 1_000_000 === 0;
+    partes.push(`${texto}${exatoMilhao ? " de" : ""} ${reais === 1 ? "real" : "reais"}`);
+  }
+  if (cents) partes.push(`${inteiroPorExtenso(cents)} ${cents === 1 ? "centavo" : "centavos"}`);
+  return partes.length ? partes.join(" e ") : "zero real";
+}
+
+function rotuloDocumento(numero: string) {
+  return numero.replace(/\D/g, "").length === 14 ? "CNPJ" : "CPF";
+}
+
 export type Campos = {
   atendimentoId: string;
   dias: string;
@@ -175,6 +304,7 @@ export type Campos = {
   exames: ExameSolicitado[];
   hipotese: string;
   itens: ItemPrescricao[];
+  recibo: DadosRecibo;
 };
 
 export type BlocoId = "anamnese" | "avaliacao" | "testes" | "exames" | "condutas" | "evolucao" | "termos";
@@ -295,6 +425,7 @@ export const CAMPOS_INICIAIS: Campos = {
   exames: [],
   hipotese: "",
   itens: [],
+  recibo: RECIBO_INICIAL,
 };
 
 const TZ = "America/Sao_Paulo";
@@ -302,6 +433,8 @@ export const dataBR = (iso: string) => new Date(iso).toLocaleDateString("pt-BR",
 export const horaBR = (iso: string) =>
   new Date(iso).toLocaleTimeString("pt-BR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
 export const hojeISO = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+export const inicioMesISO = () => `${hojeISO().slice(0, 8)}01`;
+export const diaISO = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
 export const isoParaBR = (d: string) => (d ? d.split("-").reverse().join("/") : "");
 
 export function idade(nasc: string | null, hoje = new Date()) {
@@ -698,6 +831,63 @@ function gerarPrescricao(p: Paciente, c: Campos): Secao[] {
   return secoes;
 }
 
+function gerarRecibo(p: Paciente, c: Campos): Secao[] {
+  const r = c.recibo;
+  const validos = r.itens.filter((i) => i.descricao.trim() && centavos(i.valor) > 0);
+  const total = totalRecibo(validos);
+
+  // quem pagou
+  const nomePagador = r.pagadorOutro ? r.pagadorNome.trim() || "[nome de quem pagou]" : p.full_name;
+  const docPagador = r.pagadorOutro ? r.pagadorCpf.trim() : p.cpf ?? "";
+  const pagador = docPagador
+    ? `${nomePagador}, inscrito(a) no ${rotuloDocumento(docPagador)} sob o nº ${docPagador}`
+    : nomePagador;
+
+  // período das sessões
+  const datas = validos.map((i) => i.data).filter(Boolean).sort();
+  let periodo = "";
+  if (datas.length === 1) periodo = `, realizado em ${isoParaBR(datas[0])}`;
+  else if (datas.length > 1) {
+    const ini = isoParaBR(datas[0]);
+    const fim = isoParaBR(datas[datas.length - 1]);
+    periodo = ini === fim
+      ? `, em ${validos.length} atendimentos realizados em ${ini}`
+      : `, em ${validos.length} atendimentos realizados de ${ini} a ${fim}`;
+  }
+
+  const referente = r.referente.trim() || "atendimentos fisioterapêuticos";
+  const beneficiario = r.pagadorOutro ? `, prestados ao(à) paciente ${identificacaoCurta(p)}` : "";
+  const valorTxt = total
+    ? `a importância de ${formatarReais(total)} (${valorPorExtenso(total)})`
+    : "a importância de [valor]";
+
+  const principal =
+    `Recebi de ${pagador}, ${valorTxt}, referente a ${referente}${beneficiario}${periodo}.`;
+
+  const linhas = validos.map((i, n) =>
+    `${n + 1}. ${i.data ? `${isoParaBR(i.data)}: ` : ""}${i.descricao.trim()}, ${formatarReais(centavos(i.valor))}.`
+  );
+  const itens = validos.length > 1 ? [...linhas, `Total: ${formatarReais(total)}.`].join("\n") : linhas.join("\n");
+
+  const pagamento = [
+    r.forma && `Forma de pagamento: ${r.forma}.`,
+    `Data do recebimento: ${isoParaBR(r.dataRecebimento || hojeISO())}.`,
+  ].filter(Boolean).join("\n");
+
+  return [
+    { id: "recibo_principal", titulo: "", texto: principal },
+    { id: "recibo_itens", titulo: "Discriminação dos serviços", texto: itens },
+    { id: "recibo_pagamento", titulo: "", texto: pagamento },
+    {
+      id: "observacoes",
+      titulo: "Observações",
+      texto: "",
+      dica: "Opcional. Ex.: pagamento referente ao pacote de 10 sessões; valor com desconto à vista.",
+    },
+    { id: "quitacao", titulo: "", texto: "Para clareza e como prova de quitação, firmo o presente recibo." },
+  ];
+}
+
 export function gerarSecoes(
   tipo: TipoDoc,
   p: Paciente,
@@ -708,6 +898,7 @@ export function gerarSecoes(
   if (tipo === "parecer" || tipo === "laudo") return gerarPericia(tipo, p, pr, pe);
   if (tipo === "solicitacao") return gerarSolicitacao(p, pr, c);
   if (tipo === "prescricao") return gerarPrescricao(p, c);
+  if (tipo === "recibo") return gerarRecibo(p, c);
 
   const at = pr.atendimentos.find((a) => a.id === c.atendimentoId) ?? pr.atendimentos[0];
   const dataAt = at ? dataBR(at.starts_at) : isoParaBR(hojeISO());

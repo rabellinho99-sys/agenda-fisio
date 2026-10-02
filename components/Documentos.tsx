@@ -19,22 +19,35 @@ import {
   CAMPOS_INICIAIS,
   EXAMES_IMAGEM,
   EXAMES_LAB,
+  FORMAS_PAGAMENTO,
   FUNCOES,
+  IDS_RECIBO,
   LADOS,
+  RECIBO_INICIAL,
   VIAS,
   PERICIA_INICIAL,
+  centavos,
+  centavosParaCampo,
   dataBR,
+  diaISO,
+  formatarReais,
   gerarSecoes,
   hojeISO,
   horaBR,
+  inicioMesISO,
   isoParaBR,
   novoExame,
   novoItem,
+  novoItemRecibo,
+  totalRecibo,
+  valorPorExtenso,
   type BlocoId,
   type Campos,
+  type DadosRecibo,
   type ExameSolicitado,
   type ItemCatalogo,
   type ItemPrescricao,
+  type ItemRecibo,
   type Paciente,
   type Pericia,
   type Prontuario,
@@ -52,6 +65,7 @@ type Corpo = {
   assinatura_rotulo?: string;
   solicitacao?: { exames: ExameSolicitado[]; hipotese: string };
   prescricao?: { itens: ItemPrescricao[] };
+  recibo?: DadosRecibo & { total_cents?: number };
   rodape_legal?: string;
 };
 
@@ -79,6 +93,7 @@ type Props = {
 const TIPOS: { id: TipoDoc; nome: string; descricao: string }[] = [
   { id: "declaracao", nome: "Declaração de comparecimento", descricao: "Confirma presença no atendimento, sem informação clínica." },
   { id: "atestado", nome: "Atestado", descricao: "Afastamento ou aptidão funcional por um período." },
+  { id: "recibo", nome: "Recibo", descricao: "Comprovante de pagamento para prestação de contas e Imposto de Renda, com as sessões puxadas da agenda." },
   { id: "relatorio", nome: "Relatório fisioterapêutico", descricao: "Resumo do acompanhamento, montado a partir do prontuário." },
   { id: "encaminhamento", nome: "Encaminhamento", descricao: "Para médico ou outro profissional, com resumo clínico." },
   { id: "solicitacao", nome: "Solicitação de exames", descricao: "Exames de imagem e laboratoriais, com justificativa clínica e hipótese diagnóstica." },
@@ -100,9 +115,17 @@ const RECURSO_DO_TIPO: Partial<Record<TipoDoc, Recurso>> = {
   parecer: "pericia",
 };
 
-// partes montadas a partir dos campos da solicitação e da prescrição (não guardar como edição manual)
+// partes montadas a partir dos campos da solicitação, da prescrição e do recibo (não guardar como edição manual)
 const IDS_SOLICITACAO = ["exames_imagem", "exames_lab", "hipotese"];
-const ehDosCampos = (id: string) => IDS_SOLICITACAO.includes(id) || id.startsWith("uso-");
+const ehDosCampos = (id: string) => IDS_SOLICITACAO.includes(id) || IDS_RECIBO.includes(id) || id.startsWith("uso-");
+
+type ApptRecibo = {
+  id: string;
+  starts_at: string;
+  price_cents: number | null;
+  discount_cents: number | null;
+  services: { name: string } | { name: string }[] | null;
+};
 
 export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, documentos, catalogo, cidadeClinica }: Props) {
   const supabase = createClient();
@@ -134,6 +157,10 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
   const [emitindo, setEmitindo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [catalogoMed, setCatalogoMed] = useState<ItemCatalogo[]>([]);
+
+  // recibo
+  const [puxando, setPuxando] = useState(false);
+  const [avisoRecibo, setAvisoRecibo] = useState<string | null>(null);
 
   const paciente = pacientes.find((p) => p.id === pacienteId) ?? null;
 
@@ -239,6 +266,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
     setCidAutorizado(false);
     setSubstitui(null);
     setErro(null);
+    setAvisoRecibo(null);
   }
 
   function novoDocumento() {
@@ -272,6 +300,11 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
         exames: d.body.solicitacao.exames ?? [],
         hipotese: d.body.solicitacao.hipotese ?? "",
       });
+    }
+    if (d.body?.recibo) {
+      // os itens, o pagador e o pagamento voltam para os campos e o texto é remontado
+      for (const id of IDS_RECIBO) delete ed[id];
+      setCampos({ ...CAMPOS_INICIAIS, recibo: { ...RECIBO_INICIAL, ...d.body.recibo } });
     }
     setEditadas(ed);
     setExtras(ex);
@@ -355,10 +388,86 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
     limparUsos();
   }
 
+  // ---------- recibo ----------
+  function limparRecibo() {
+    setEditadas((e) => {
+      const n = { ...e };
+      for (const k of IDS_RECIBO) delete n[k];
+      return n;
+    });
+  }
+
+  function mudarRecibo(mudanca: Partial<DadosRecibo>) {
+    setCampos((c) => ({ ...c, recibo: { ...c.recibo, ...mudanca } }));
+    limparRecibo();
+  }
+
+  function mudarItemRecibo(id: string, mudanca: Partial<ItemRecibo>) {
+    setCampos((c) => ({
+      ...c,
+      recibo: { ...c.recibo, itens: c.recibo.itens.map((i) => (i.id === id ? { ...i, ...mudanca } : i)) },
+    }));
+    limparRecibo();
+  }
+
+  function adicionarItemRecibo() {
+    setCampos((c) => ({
+      ...c,
+      recibo: { ...c.recibo, itens: [...c.recibo.itens, novoItemRecibo(hojeISO(), "Atendimento fisioterapêutico", "")] },
+    }));
+    limparRecibo();
+  }
+
+  function removerItemRecibo(id: string) {
+    setCampos((c) => ({ ...c, recibo: { ...c.recibo, itens: c.recibo.itens.filter((i) => i.id !== id) } }));
+    limparRecibo();
+  }
+
+  async function puxarAtendimentos() {
+    if (!paciente) return;
+    const de = campos.recibo.de || inicioMesISO();
+    const ate = campos.recibo.ate || hojeISO();
+    if (de > ate) return setAvisoRecibo("A data inicial está depois da data final.");
+    setAvisoRecibo(null);
+    setPuxando(true);
+    const { data, error } = await supabase
+      .from("appointments")
+      .select("id, starts_at, price_cents, discount_cents, services(name)")
+      .eq("patient_id", paciente.id)
+      .gte("starts_at", new Date(`${de}T00:00:00-03:00`).toISOString())
+      .lte("starts_at", new Date(`${ate}T23:59:59-03:00`).toISOString())
+      .not("status", "in", "(cancelled_by_patient,cancelled_by_clinic,no_show,pending)")
+      .order("starts_at", { ascending: true });
+    setPuxando(false);
+    if (error) return setAvisoRecibo(`Não foi possível buscar os atendimentos: ${error.message}`);
+    const lista = (data as unknown as ApptRecibo[]) ?? [];
+    if (!lista.length) {
+      return setAvisoRecibo("Nenhum atendimento confirmado nesse período. Ajuste as datas ou adicione os itens manualmente.");
+    }
+    const itens = lista.map((a) => {
+      const serv = Array.isArray(a.services) ? a.services[0] : a.services;
+      const valor = Math.max(0, (a.price_cents ?? 0) - (a.discount_cents ?? 0));
+      return novoItemRecibo(
+        diaISO(a.starts_at),
+        serv?.name?.trim() || "Atendimento fisioterapêutico",
+        valor ? centavosParaCampo(valor) : ""
+      );
+    });
+    const semValor = itens.filter((i) => !centavos(i.valor)).length;
+    setCampos((c) => ({ ...c, recibo: { ...c.recibo, de, ate, itens } }));
+    limparRecibo();
+    setAvisoRecibo(
+      `${itens.length} ${itens.length === 1 ? "atendimento encontrado" : "atendimentos encontrados"}.` +
+        (semValor ? ` ${semValor} sem valor na agenda (ex.: sessões de pacote): preencha o valor ou remova.` : "")
+    );
+  }
+
   const tituloDoc = TIPOS.find((t) => t.id === tipo)?.nome ?? "Documento";
   const ehPericia = tipo === "parecer" || tipo === "laudo";
   const ehPrescricao = tipo === "prescricao";
-  const mostraClinico = tipo !== "declaracao" && !ehPrescricao;
+  const ehRecibo = tipo === "recibo";
+  const mostraClinico = tipo !== "declaracao" && !ehPrescricao && !ehRecibo;
+  const totalAtual = totalRecibo(campos.recibo.itens.filter((i) => i.descricao.trim()));
 
   async function cadastrarPaciente() {
     if (!novoPac) return;
@@ -406,19 +515,29 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
     if (ehPrescricao && itensValidos.some((i) => !i.posologia.trim())) {
       return setErro("Preencha a posologia de todos os itens da prescrição.");
     }
+    const itensRecibo = campos.recibo.itens.filter((i) => i.descricao.trim() && centavos(i.valor) > 0);
+    if (ehRecibo) {
+      if (campos.recibo.itens.some((i) => i.descricao.trim() && !centavos(i.valor))) {
+        return setErro("Há itens do recibo sem valor. Preencha o valor ou remova o item.");
+      }
+      if (!itensRecibo.length) return setErro("Adicione pelo menos um item com valor ao recibo.");
+      if (campos.recibo.pagadorOutro && !campos.recibo.pagadorNome.trim()) {
+        return setErro("Informe o nome de quem fez o pagamento.");
+      }
+    }
     const finais = secoes.filter((s) => s.texto.trim());
     if (!finais.length) return setErro("O documento está sem texto.");
     if (cid.trim() && !cidAutorizado) {
       return setErro("Para incluir o CID, confirme que o paciente autorizou. Ou apague o campo CID.");
     }
-    const pendentes = finais.some((s) => /\[(responder|solicitante)\]/.test(s.texto));
+    const pendentes = finais.some((s) => /\[(responder|solicitante|nome de quem pagou|valor)\]/.test(s.texto));
     if (pendentes && !window.confirm("Há quesitos sem resposta ou campos marcados entre colchetes. Emitir mesmo assim?")) return;
     if (!window.confirm("Depois de emitido, o documento não pode ser alterado (só substituído por nova versão). Emitir agora?")) return;
     setEmitindo(true);
     const corpo: Corpo = {
       secoes: finais.map(({ id, titulo, texto }) => ({ id, titulo, texto })),
-      cid: cid.trim() || null,
-      cid_autorizado: cid.trim() ? cidAutorizado : false,
+      cid: mostraClinico ? cid.trim() || null : null,
+      cid_autorizado: mostraClinico && cid.trim() ? cidAutorizado : false,
       ...(ehPericia
         ? { pericia, assinatura_rotulo: FUNCOES.find((f) => f.id === pericia.funcao)?.assinatura ?? "Fisioterapeuta" }
         : {}),
@@ -426,6 +545,16 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
         ? { solicitacao: { exames: examesValidos, hipotese: campos.hipotese.trim() } }
         : {}),
       ...(ehPrescricao ? { prescricao: { itens: itensValidos }, rodape_legal: BASE_LEGAL_PRESCRICAO } : {}),
+      ...(ehRecibo
+        ? {
+            recibo: {
+              ...campos.recibo,
+              itens: itensRecibo,
+              dataRecebimento: campos.recibo.dataRecebimento || hojeISO(),
+              total_cents: totalRecibo(itensRecibo),
+            },
+          }
+        : {}),
     };
     const { data, error } = await supabase.rpc("issue_document", {
       p_patient: paciente.id,
@@ -448,7 +577,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
           <div>
             <h1 className="h-title text-2xl">Documentos</h1>
             <p className="mt-1 text-sm text-ink/70">
-              Declarações, atestados, relatórios, encaminhamentos, solicitações de exames e prescrições.
+              Declarações, atestados, recibos, relatórios, encaminhamentos, solicitações de exames e prescrições.
             </p>
           </div>
           <button className="btn-primary" onClick={novoDocumento}>Novo documento</button>
@@ -483,7 +612,12 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                     <td className="px-3 py-2 font-mono">{d.number}</td>
                     <td className="px-3 py-2">{dataBR(d.issued_at)}</td>
                     <td className="px-3 py-2">{d.patients?.full_name ?? ""}</td>
-                    <td className="px-3 py-2">{d.title}</td>
+                    <td className="px-3 py-2">
+                      {d.title}
+                      {d.doc_type === "recibo" && d.body?.recibo?.total_cents
+                        ? <span className="text-ink/60"> · {formatarReais(d.body.recibo.total_cents)}</span>
+                        : null}
+                    </td>
                     <td className="whitespace-nowrap px-3 py-2 text-right">
                       <a href={`/documento/${d.id}`} target="_blank" className="font-semibold underline underline-offset-4">
                         Abrir
@@ -635,6 +769,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                     setTipo(t.id);
                     setEditadas({});
                     setExtras([]);
+                    setAvisoRecibo(null);
                     if (t.id === "laudo") setPericia((p) => ({ ...p, funcao: "perito" }));
                     if (t.id === "parecer" && pericia.funcao === "perito") setPericia((p) => ({ ...p, funcao: "assistente_autor" }));
                     if (t.id === "solicitacao" && campos.exames.length === 0) {
@@ -694,6 +829,112 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                       <option value="laborais e esportivas">laborais e esportivas</option>
                     </select>
                   </div>
+                </>
+              )}
+              {ehRecibo && (
+                <>
+                  <div className="space-y-3 md:col-span-2">
+                    <p className="label">Atendimentos cobrados</p>
+                    <div className="grid gap-3 rounded-lg bg-paper p-3 sm:grid-cols-[1fr_1fr_auto]">
+                      <div>
+                        <label className="label" htmlFor="rec-de">De</label>
+                        <input id="rec-de" type="date" className="field w-full" value={campos.recibo.de || inicioMesISO()}
+                          onChange={(e) => mudarRecibo({ de: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="label" htmlFor="rec-ate">Até</label>
+                        <input id="rec-ate" type="date" className="field w-full" value={campos.recibo.ate || hojeISO()}
+                          onChange={(e) => mudarRecibo({ ate: e.target.value })} />
+                      </div>
+                      <div className="flex items-end">
+                        <button className="btn-ghost w-full text-sm" onClick={puxarAtendimentos} disabled={puxando}>
+                          {puxando ? "Buscando" : "Puxar da agenda"}
+                        </button>
+                      </div>
+                      <p className="text-xs text-ink/60 sm:col-span-3">
+                        Busca os atendimentos confirmados do paciente no período, com o serviço e o valor cadastrados na agenda.
+                      </p>
+                    </div>
+                    {avisoRecibo && <p className="text-sm text-ink/70">{avisoRecibo}</p>}
+
+                    {campos.recibo.itens.length === 0 && (
+                      <p className="text-xs text-ink/60">
+                        Nenhum item ainda. Puxe da agenda ou adicione manualmente (ex.: pacote pago à vista).
+                      </p>
+                    )}
+                    {campos.recibo.itens.map((it, i) => (
+                      <div key={it.id} className="grid gap-3 rounded-lg border border-ink/10 p-3 sm:grid-cols-[10rem_1fr_8rem_auto]">
+                        <div>
+                          <label className="label" htmlFor={`rd-${it.id}`}>Item {i + 1}: data</label>
+                          <input id={`rd-${it.id}`} type="date" className="field w-full" value={it.data}
+                            onChange={(e) => mudarItemRecibo(it.id, { data: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="label" htmlFor={`rs-${it.id}`}>Serviço</label>
+                          <input id={`rs-${it.id}`} className="field w-full" value={it.descricao}
+                            placeholder="Ex.: Sessão de fisioterapia"
+                            onChange={(e) => mudarItemRecibo(it.id, { descricao: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="label" htmlFor={`rv-${it.id}`}>Valor (R$)</label>
+                          <input id={`rv-${it.id}`} inputMode="decimal" className="field w-full" value={it.valor}
+                            placeholder="0,00"
+                            onChange={(e) => mudarItemRecibo(it.id, { valor: e.target.value })} />
+                        </div>
+                        <div className="flex items-end">
+                          <button className="text-sm text-danger" onClick={() => removerItemRecibo(it.id)}>Remover</button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <button className="btn-ghost text-sm" onClick={adicionarItemRecibo}>Adicionar item manual</button>
+                      <p className="text-base font-extrabold">Total: {formatarReais(totalAtual)}</p>
+                    </div>
+                    {totalAtual > 0 && (
+                      <p className="text-right text-xs text-ink/60">Por extenso: {valorPorExtenso(totalAtual)}</p>
+                    )}
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="label" htmlFor="rec-ref">Referente a</label>
+                    <input id="rec-ref" className="field w-full" value={campos.recibo.referente}
+                      placeholder="atendimentos fisioterapêuticos"
+                      onChange={(e) => mudarRecibo({ referente: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="rec-forma">Forma de pagamento</label>
+                    <select id="rec-forma" className="field w-full" value={campos.recibo.forma}
+                      onChange={(e) => mudarRecibo({ forma: e.target.value })}>
+                      {FORMAS_PAGAMENTO.map((f) => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="rec-data">Data do recebimento</label>
+                    <input id="rec-data" type="date" className="field w-full" value={campos.recibo.dataRecebimento || hojeISO()}
+                      onChange={(e) => mudarRecibo({ dataRecebimento: e.target.value })} />
+                  </div>
+                  <label className="flex items-start gap-2 text-sm md:col-span-2">
+                    <input type="checkbox" className="mt-1" checked={campos.recibo.pagadorOutro}
+                      onChange={(e) => mudarRecibo({ pagadorOutro: e.target.checked })} />
+                    Quem pagou não é o próprio paciente (mãe, pai, responsável, empresa)
+                  </label>
+                  {campos.recibo.pagadorOutro && (
+                    <>
+                      <div>
+                        <label className="label" htmlFor="rec-pnome">Nome de quem pagou</label>
+                        <input id="rec-pnome" className="field w-full" value={campos.recibo.pagadorNome}
+                          onChange={(e) => mudarRecibo({ pagadorNome: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="label" htmlFor="rec-pcpf">CPF ou CNPJ de quem pagou</label>
+                        <input id="rec-pcpf" className="field w-full" value={campos.recibo.pagadorCpf}
+                          onChange={(e) => mudarRecibo({ pagadorCpf: e.target.value })} />
+                      </div>
+                    </>
+                  )}
+                  <p className="text-xs text-ink/60 md:col-span-2">
+                    Para o paciente usar no Imposto de Renda, o recibo precisa do seu CPF ou CNPJ e do endereço, que saem
+                    no cabeçalho a partir dos dados da clínica. Confira se estão preenchidos antes de emitir.
+                  </p>
                 </>
               )}
               {tipo === "relatorio" && (
@@ -1056,13 +1297,16 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
             <p className="text-base font-extrabold">Prévia</p>
             <div className="mt-3 space-y-3 rounded-lg border border-ink/10 p-5 text-sm leading-relaxed">
               <p className="text-center font-extrabold uppercase tracking-wide">{tituloDoc}</p>
+              {ehRecibo && totalAtual > 0 && (
+                <p className="text-center text-lg font-extrabold">Valor: {formatarReais(totalAtual)}</p>
+              )}
               {secoes.filter((s) => s.texto.trim()).map((s) => (
                 <div key={s.id}>
                   {s.titulo && <p className="font-semibold">{s.titulo}</p>}
                   <p className="whitespace-pre-line">{s.texto}</p>
                 </div>
               ))}
-              {cid.trim() && cidAutorizado && <p>CID: {cid.trim()} (inclusão autorizada pelo paciente).</p>}
+              {mostraClinico && cid.trim() && cidAutorizado && <p>CID: {cid.trim()} (inclusão autorizada pelo paciente).</p>}
               {mostraClinico && usarCif && cif.length > 0 && (
                 <div>
                   <p className="font-semibold">Classificação CIF</p>
