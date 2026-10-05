@@ -65,6 +65,24 @@ export default function SinoPendentes() {
   const anterior = useRef<number | null>(null);
   const tituloBase = useRef<string>("");
   const caixa = useRef<HTMLDivElement>(null);
+  const botaoRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; maxH: number } | null>(null);
+
+  const posicionar = useCallback(() => {
+    const b = botaoRef.current;
+    if (!b) return;
+    const r = b.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const margem = 12;
+    const width = Math.min(400, vw - margem * 2);
+    // Alinha a borda direita da caixa com o sino, sem nunca sair da tela
+    let left = r.right - width;
+    if (left < margem) left = margem;
+    if (left + width > vw - margem) left = vw - margem - width;
+    const top = Math.min(r.bottom + 8, vh - 200);
+    setPos({ top, left, width, maxH: Math.max(200, vh - top - margem) });
+  }, []);
 
   const carregar = useCallback(async () => {
     const { data, error } = await supabase.rpc("list_pending_appointments");
@@ -104,11 +122,26 @@ export default function SinoPendentes() {
 
   useEffect(() => {
     if (!aberto) return;
-    const fora = (e: MouseEvent) => {
+    posicionar();
+    window.addEventListener("resize", posicionar);
+    window.addEventListener("scroll", posicionar, true);
+    return () => {
+      window.removeEventListener("resize", posicionar);
+      window.removeEventListener("scroll", posicionar, true);
+    };
+  }, [aberto, posicionar]);
+
+  useEffect(() => {
+    if (!aberto) return;
+    const fora = (e: MouseEvent | TouchEvent) => {
       if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
     };
     document.addEventListener("mousedown", fora);
-    return () => document.removeEventListener("mousedown", fora);
+    document.addEventListener("touchstart", fora);
+    return () => {
+      document.removeEventListener("mousedown", fora);
+      document.removeEventListener("touchstart", fora);
+    };
   }, [aberto]);
 
   async function decidir(p: Pendente, acao: "accept" | "decline") {
@@ -143,6 +176,7 @@ export default function SinoPendentes() {
   return (
     <div ref={caixa} style={{ position: "relative", display: "inline-block" }}>
       <button
+        ref={botaoRef}
         type="button"
         onClick={() => setAberto((v) => !v)}
         aria-label={qtd > 0 ? `${qtd} agendamentos aguardando aprovação` : "Notificações"}
@@ -165,11 +199,12 @@ export default function SinoPendentes() {
         )}
       </button>
 
-      {aberto && (
+      {aberto && pos && (
         <div style={{
-          position: "absolute", right: 0, top: 48, width: "min(380px, calc(100vw - 24px))", maxHeight: "70vh",
-          overflowY: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14,
-          boxShadow: "0 12px 32px rgba(15,23,42,0.18)", zIndex: 60, padding: 14,
+          position: "fixed", top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxH,
+          overflowY: "auto", WebkitOverflowScrolling: "touch", boxSizing: "border-box",
+          background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14,
+          boxShadow: "0 12px 32px rgba(15,23,42,0.18)", zIndex: 1000, padding: 14,
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <strong style={{ fontSize: 15, color: "#0f172a" }}>Aguardando sua aprovação</strong>
