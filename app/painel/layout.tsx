@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SairButton } from "@/components/SairButton";
 import { Gate } from "@/components/Gate";
 import { BloqueioPlano } from "@/components/BloqueioPlano";
+import SinoPendentes from "@/components/SinoPendentes";
 import { NOME_PLANO, temRecurso, type Recurso, type Recursos } from "@/lib/planos";
 
 const WHATSAPP_SUPORTE =
@@ -101,6 +102,7 @@ export default async function PainelLayout({ children }: { children: React.React
           <Link href="/painel/configuracoes" className={linkMenu}>Configurações</Link>
         </nav>
         <div className="flex items-center gap-2">
+          <SinoPendentes />
           <Link href={`/${clinic.slug}`} target="_blank" className="btn-ghost text-sm">
             Ver link público
           </Link>
