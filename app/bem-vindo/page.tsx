@@ -25,14 +25,7 @@ export default function BemVindo() {
       tentativas++;
       if (window.fbq || tentativas >= 10) {
         clearInterval(timer);
-        try {
-          if (!sessionStorage.getItem("afp_cadastro_registrado")) {
-            rastrearCadastro(metodo);
-            sessionStorage.setItem("afp_cadastro_registrado", "1");
-          }
-        } catch {
-          rastrearCadastro(metodo);
-        }
+        rastrearCadastro(metodo);
         setTimeout(() => router.replace(destino), 400);
       }
     }, 150);

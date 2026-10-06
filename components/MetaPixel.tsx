@@ -3,7 +3,7 @@
 import Script from "next/script";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
-import { META_PIXEL_ID, paginaPermitePixel } from "@/lib/metaPixel";
+import { META_PIXEL_ID, paginaPermitePixel, rastrearCadastro } from "@/lib/metaPixel";
 
 export function MetaPixel() {
   const pathname = usePathname();
@@ -19,6 +19,21 @@ export function MetaPixel() {
     if (!META_PIXEL_ID || !permitido) return;
     window.fbq?.("track", "PageView");
   }, [pathname, permitido]);
+
+  // Cadastro por e-mail com confirmação: o link do e-mail leva direto ao /onboarding.
+  // A primeira chegada ao onboarding conta como cadastro concluído (uma vez por navegador).
+  useEffect(() => {
+    if (!META_PIXEL_ID || pathname !== "/onboarding") return;
+    let tentativas = 0;
+    const timer = setInterval(() => {
+      tentativas++;
+      if (window.fbq || tentativas >= 20) {
+        clearInterval(timer);
+        rastrearCadastro("email");
+      }
+    }, 200);
+    return () => clearInterval(timer);
+  }, [pathname]);
 
   if (!META_PIXEL_ID || !permitido) return null;
 

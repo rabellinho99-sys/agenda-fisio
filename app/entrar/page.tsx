@@ -51,9 +51,14 @@ function EntrarForm() {
       });
       setCarregando(false);
       if (error) return setErro(traduz(error.message));
+      // E-mail que já tem conta: o Supabase não cria nada nem envia e-mail
+      if (data.user && (data.user.identities?.length ?? 0) === 0) {
+        setModo("login");
+        return setErro("Este e-mail já tem conta. Entre com sua senha ou use Esqueci minha senha.");
+      }
       // Conta criada: passa pela tela de boas-vindas, que registra o cadastro no pixel da Meta
       if (data.session) return router.push("/bem-vindo?m=email&next=/onboarding");
-      return setAviso("Enviamos um link de confirmação para o seu e-mail. Abra o link para continuar.");
+      return setAviso("Enviamos um link de confirmação para o seu e-mail. Abra o link para continuar. Se não aparecer em alguns minutos, olhe também o spam.");
     }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password: senha });

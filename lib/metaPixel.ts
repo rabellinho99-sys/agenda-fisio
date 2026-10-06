@@ -20,6 +20,7 @@ const PAGINAS_PUBLICAS = [
   "/entrar",
   "/esqueci-senha",
   "/bem-vindo",
+  "/onboarding",
   "/termos-de-uso",
   "/privacidade",
 ];
@@ -32,6 +33,11 @@ export function paginaPermitePixel(pathname: string | null): boolean {
 export function rastrearCadastro(metodo: "email" | "google") {
   try {
     if (typeof window === "undefined" || !window.fbq) return;
+    // registra o cadastro uma única vez por navegador
+    try {
+      if (localStorage.getItem("afp_cadastro_registrado")) return;
+      localStorage.setItem("afp_cadastro_registrado", "1");
+    } catch {}
     window.fbq("track", "CompleteRegistration", {
       content_name: "Agenda Fisio Pro",
       status: "trial",
