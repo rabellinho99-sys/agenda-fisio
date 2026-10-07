@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { PwaRegister } from "@/components/PwaRegister";
 import { MetaPixel } from "@/components/MetaPixel";
+import { WhatsAppBotao } from "@/components/WhatsAppBotao";
 
 export const metadata: Metadata = {
   title: "Agenda Fisio Pro",
@@ -47,6 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PwaRegister />
         <MetaPixel />
         {children}
+        <WhatsAppBotao />
       </body>
     </html>
   );
