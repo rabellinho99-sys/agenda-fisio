@@ -93,6 +93,7 @@ export default async function PainelLayout({ children }: { children: React.React
           <Link href="/painel/testes" className={linkMenu}>Testes{cadeado("testes")}</Link>
           <Link href="/painel/documentos" className={linkMenu}>Documentos</Link>
           <Link href="/painel/termos" className={linkMenu}>Termos{cadeado("tcle")}</Link>
+          <Link href="/painel/contrato" className={linkMenu}>Contratos{cadeado("tcle")}</Link>
           <Link href="/painel/pacotes" className={linkMenu}>Pacotes{cadeado("packages")}</Link>
           <Link href="/painel/financeiro" className={linkMenu}>Financeiro{cadeado("financeiro")}</Link>
           <Link href="/painel/servicos" className={linkMenu}>Serviços</Link>
