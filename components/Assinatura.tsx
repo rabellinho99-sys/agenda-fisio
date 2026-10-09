@@ -50,7 +50,10 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail, c
 }) {
   const supabase = createClient();
 
-  const basePlans = plans.filter((p) => p.billing_months === 1);
+  // Planos mensais (base) em ordem de preço: Solo, Solo Completo, Clínica, Clínica Pro
+  const basePlans = plans
+    .filter((p) => p.billing_months === 1)
+    .sort((a, b) => a.price_cents - b.price_cents);
 
   const [basePlano, setBasePlano] = useState<string>(() => {
     const cur = sub?.plan_code ?? "solo";
@@ -109,7 +112,7 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail, c
       return setErro(msg);
     }
     if (data?.payment_url) window.location.href = data.payment_url;
-    else setErro("Assinatura criada, mas o link de pagamento ainda não foi gerado. Recarregue em instantes.");
+    else setErro("Plano alterado. A nova cobrança aparece na sua próxima fatura. Recarregue a página para ver o plano atualizado.");
   }
 
   const acesso = sub?.access ?? "blocked";
@@ -262,8 +265,8 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail, c
             })}
           </div>
 
-          {/* Cards de planos */}
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {/* Cards de planos: 1 coluna no celular, 2 no computador (4 planos = 2 linhas de 2) */}
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {basePlans.map((p) => {
               const variant = periodo === 1
                 ? p
@@ -271,6 +274,7 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail, c
               const precoMensal = Math.round(variant.price_cents / variant.billing_months);
               const sel = basePlano === p.code;
               const atual = acesso === "active" && planoAtualBase === p.code;
+              const completo = FEATS.every((f) => temFeat(p, f));
 
               return (
                 <button
@@ -282,9 +286,14 @@ export function Assinatura({ clinicId, isOwner, sub, plans, clinic, userEmail, c
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-bold">{p.name}</p>
-                    {atual && (
-                      <span className="rounded bg-moss px-1.5 py-0.5 text-xs font-bold text-white">Seu plano</span>
-                    )}
+                    <div className="flex gap-1">
+                      {completo && p.max_professionals === 1 && (
+                        <span className="rounded bg-amber px-1.5 py-0.5 text-xs font-bold text-ink">Tudo liberado</span>
+                      )}
+                      {atual && (
+                        <span className="rounded bg-moss px-1.5 py-0.5 text-xs font-bold text-white">Seu plano</span>
+                      )}
+                    </div>
                   </div>
                   <p className="mt-1 text-2xl font-extrabold tracking-tight">
                     {brl(precoMensal)}
