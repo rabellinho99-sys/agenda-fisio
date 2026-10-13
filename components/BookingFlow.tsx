@@ -45,6 +45,7 @@ export function BookingFlow({ clinic }: { clinic: PublicClinic }) {
   const [termoLi, setTermoLi] = useState(false);
   const [assinandoTermo, setAssinandoTermo] = useState(false);
   const [termoAssinado, setTermoAssinado] = useState(false);
+  const [termoJaAssinadoEm, setTermoJaAssinadoEm] = useState<string | null>(null);
   const [erroTermo, setErroTermo] = useState<string | null>(null);
 
   const svc = services.find((s) => s.id === svcId) ?? null;
@@ -84,7 +85,11 @@ export function BookingFlow({ clinic }: { clinic: PublicClinic }) {
     // Se o servico exige termo, gera o pedido (com o texto renderizado) e abre a assinatura na mesma tela
     if (svc?.requires_consent && svc.consent_template_id && apptId) {
       const { data: termo } = await supabase.rpc("create_public_consent_request", { p_appointment: apptId as string });
-      if (termo?.token) {
+      // Paciente já assinou este termo antes: não pede de novo
+      if (termo?.already_signed) {
+        setTermoTitulo((termo.template_name as string) ?? "Termo de consentimento");
+        setTermoJaAssinadoEm((termo.signed_at as string) ?? null);
+      } else if (termo?.token) {
         setTermoToken(termo.token as string);
         setTermoBody((termo.body as string) ?? null);
         setTermoTitulo((termo.template_name as string) ?? "Termo de consentimento");
@@ -129,6 +134,14 @@ export function BookingFlow({ clinic }: { clinic: PublicClinic }) {
           <div className="mt-4 rounded-xl bg-moss/10 p-4">
             <p className="font-semibold text-moss-deep">Termo de consentimento assinado.</p>
             <p className="mt-1 text-sm text-ink/70">Uma cópia fica guardada no seu prontuário. Você pode revogar o consentimento a qualquer momento, é só avisar o profissional.</p>
+          </div>
+        )}
+        {termoJaAssinadoEm && (
+          <div className="mt-4 rounded-xl bg-moss/10 p-4">
+            <p className="font-semibold text-moss-deep">✓ {termoTitulo} já assinado</p>
+            <p className="mt-1 text-sm text-ink/70">
+              Você assinou este termo em {new Date(termoJaAssinadoEm).toLocaleDateString("pt-BR", { timeZone: tz })}. Não é preciso assinar de novo.
+            </p>
           </div>
         )}
         {!termoAssinado && termoToken && (
@@ -267,7 +280,7 @@ export function BookingFlow({ clinic }: { clinic: PublicClinic }) {
               <div><label className="label" htmlFor="nome">Nome completo</label><input id="nome" className="field" value={nome} onChange={(e) => setNome(e.target.value)} /></div>
               <div><label className="label" htmlFor="fone">WhatsApp com DDD</label><input id="fone" className="field" inputMode="tel" value={fone} onChange={(e) => setFone(e.target.value)} placeholder="33 99999 0000" /></div>
               <div><label className="label" htmlFor="obs">Quer adiantar algo? (opcional)</label><textarea id="obs" className="field" rows={2} value={obs} onChange={(e) => setObs(e.target.value)} /></div>
-              {svc?.requires_consent && <p className="rounded-lg bg-amber/15 px-3 py-2 text-sm text-ink/80">Este procedimento exige um termo de consentimento. Depois de confirmar, você vai ler e assinar o termo aqui mesmo.</p>}
+              {svc?.requires_consent && <p className="rounded-lg bg-amber/15 px-3 py-2 text-sm text-ink/80">Este procedimento exige um termo de consentimento. Depois de confirmar, você vai ler e assinar o termo aqui mesmo. Se já assinou antes, não precisa assinar de novo.</p>}
               {erro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
               <button className="btn-primary w-full" onClick={confirmar} disabled={enviando || nome.length < 3 || fone.replace(/\D/g, "").length < 10}>
                 {enviando ? "Marcando" : "Confirmar horário"}
