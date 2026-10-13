@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { slugify } from "@/lib/format";
@@ -12,6 +13,14 @@ export default function OnboardingPage() {
   const [slugEditado, setSlugEditado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
+  const [convites, setConvites] = useState<{ token: string; clinic_name: string }[]>([]);
+
+  // Quem foi convidado por uma clínica não deve criar uma clínica nova por engano
+  useEffect(() => {
+    createClient().rpc("my_pending_invites").then(({ data }) => {
+      setConvites((data as { token: string; clinic_name: string }[]) ?? []);
+    });
+  }, []);
 
   function onNome(v: string) {
     setNome(v);
@@ -38,6 +47,16 @@ export default function OnboardingPage() {
       <div className="w-full max-w-md">
         <h1 className="h-title text-3xl">Dê um nome à sua agenda</h1>
         <p className="mt-2 text-ink/70">É o que o paciente vê ao abrir seu link de agendamento.</p>
+
+        {convites.map((c) => (
+          <div key={c.token} className="mt-6 rounded-xl border border-moss/40 bg-white p-4">
+            <p className="font-bold">Você tem um convite da {c.clinic_name}</p>
+            <p className="mt-1 text-sm text-ink/70">
+              Se você vai atender nessa clínica, aceite o convite em vez de criar uma agenda nova.
+            </p>
+            <Link href={`/convite/${c.token}`} className="btn-primary mt-3 inline-block">Ver convite</Link>
+          </div>
+        ))}
 
         <div className="mt-8 space-y-5">
           <div>

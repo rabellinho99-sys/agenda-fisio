@@ -18,6 +18,7 @@ export type Recursos = Partial<Record<Recurso, boolean>> & {
 
 export const NOME_PLANO: Record<string, string> = {
   solo: "Solo",
+  solo_completo: "Solo Completo",
   clinica: "Clínica",
   clinica_pro: "Clínica Pro",
   teste: "Período grátis",
@@ -29,42 +30,42 @@ export const INFO_RECURSO: Record<Recurso, { nome: string; plano: string; descri
   prontuario: { nome: "Prontuário", plano: "Solo", descricao: "Anamnese e evolução SOAP." },
   whatsapp: {
     nome: "WhatsApp automático",
-    plano: "Clínica",
+    plano: "Solo Completo",
     descricao: "Confirmação e lembretes enviados sozinhos pelo WhatsApp, reduzindo faltas.",
   },
   packages: {
     nome: "Pacotes de sessões",
-    plano: "Clínica",
+    plano: "Solo Completo",
     descricao: "Venda pacotes, controle o saldo de sessões de cada paciente e o que já foi pago.",
   },
   tcle: {
     nome: "TCLE digital",
-    plano: "Clínica",
+    plano: "Solo Completo",
     descricao: "Termos de consentimento enviados por link e assinados pelo celular, com registro de data e hora.",
   },
   imagens: {
     nome: "Imagens e exames",
-    plano: "Clínica",
+    plano: "Solo Completo",
     descricao: "Fotos de evolução e exames anexados ao prontuário, em pasta privada da clínica.",
   },
   documentos_clinicos: {
     nome: "Relatório e encaminhamento",
-    plano: "Clínica",
+    plano: "Solo Completo",
     descricao: "Relatório fisioterapêutico e encaminhamento montados sozinhos a partir do prontuário, com CIF.",
   },
   testes: {
     nome: "Testes ortopédicos e força",
-    plano: "Clínica",
+    plano: "Solo Completo",
     descricao: "41 testes ortopédicos e força por Oxford ou dinamometria, com classificação por cores e codificação CIF automática.",
   },
   pericia: {
     nome: "Laudo pericial e parecer técnico",
-    plano: "Clínica Pro",
+    plano: "Solo Completo",
     descricao: "Laudo e parecer com processo, critérios de nexo, capacidade funcional e quesitos separados automaticamente.",
   },
   financeiro: {
     nome: "Financeiro completo",
-    plano: "Clínica Pro",
+    plano: "Solo Completo",
     descricao: "Receitas, despesas e relatórios da clínica em um só lugar.",
   },
 };

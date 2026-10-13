@@ -10,6 +10,9 @@ export async function GET(req: NextRequest) {
   const origin = url.origin;
   const code = url.searchParams.get("code");
   const aceitou = url.searchParams.get("aceite") === "1";
+  // Convite de profissional: depois do login volta para a página do convite
+  const nextParam = url.searchParams.get("next") ?? "";
+  const destinoConvite = nextParam.startsWith("/convite/") ? nextParam : null;
 
   if (!code) return NextResponse.redirect(`${origin}/entrar?erro=google`);
 
@@ -41,14 +44,16 @@ export async function GET(req: NextRequest) {
     } else if (!membro) {
       // conta nova criada pelo Google sem marcar o aceite: volta para o cadastro
       await supabase.auth.signOut();
-      return NextResponse.redirect(`${origin}/entrar?modo=cadastro&erro=termos`);
+      const volta = destinoConvite ? `&next=${encodeURIComponent(destinoConvite)}` : "";
+      return NextResponse.redirect(`${origin}/entrar?modo=cadastro&erro=termos${volta}`);
     }
   }
 
   // Cadastro novo passa pela tela de boas-vindas, que registra o cadastro no pixel da Meta
   if (cadastroNovo) {
-    return NextResponse.redirect(`${origin}/bem-vindo?m=google&next=/onboarding`);
+    return NextResponse.redirect(`${origin}/bem-vindo?m=google&next=${encodeURIComponent(destinoConvite ?? "/onboarding")}`);
   }
 
+  if (destinoConvite) return NextResponse.redirect(`${origin}${destinoConvite}`);
   return NextResponse.redirect(`${origin}${membro ? "/painel" : "/onboarding"}`);
 }

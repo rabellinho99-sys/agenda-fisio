@@ -12,11 +12,17 @@ const PRIVACIDADE_VERSAO = "2026-09-28";
 function EntrarForm() {
   const params = useSearchParams();
   const router = useRouter();
+  // Destino depois de entrar. Só aceita caminhos internos.
+  const nextParam = params.get("next");
+  const nextSeguro = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : null;
+  // Quem veio por convite de profissional volta para o convite, e não para criar uma clínica nova
+  const destinoConvite = nextSeguro && nextSeguro.startsWith("/convite/") ? nextSeguro : null;
+  const destinoCadastro = destinoConvite ?? "/onboarding";
   const [modo, setModo] = useState<"login" | "cadastro">(
     params.get("modo") === "cadastro" ? "cadastro" : "login"
   );
   const [nome, setNome] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(params.get("email") ?? "");
   const [senha, setSenha] = useState("");
   const [aceite, setAceite] = useState(false);
   const [erro, setErro] = useState<string | null>(mensagemErro(params.get("erro")));
@@ -46,7 +52,7 @@ function EntrarForm() {
             privacy_version: PRIVACIDADE_VERSAO,
             user_agent: navigator.userAgent.slice(0, 500),
           },
-          emailRedirectTo: `${location.origin}/auth/callback?next=/onboarding`,
+          emailRedirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(destinoCadastro)}`,
         },
       });
       setCarregando(false);
@@ -57,14 +63,14 @@ function EntrarForm() {
         return setErro("Este e-mail já tem conta. Entre com sua senha ou use Esqueci minha senha.");
       }
       // Conta criada: passa pela tela de boas-vindas, que registra o cadastro no pixel da Meta
-      if (data.session) return router.push("/bem-vindo?m=email&next=/onboarding");
+      if (data.session) return router.push(`/bem-vindo?m=email&next=${encodeURIComponent(destinoCadastro)}`);
       return setAviso("Enviamos um link de confirmação para o seu e-mail. Abra o link para continuar. Se não aparecer em alguns minutos, olhe também o spam.");
     }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
     setCarregando(false);
     if (error) return setErro(traduz(error.message));
-    router.push(params.get("next") ?? "/painel");
+    router.push(nextSeguro ?? "/painel");
     router.refresh();
   }
 
@@ -79,7 +85,9 @@ function EntrarForm() {
     const aceiteParam = modo === "cadastro" && aceite ? "1" : "0";
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${location.origin}/auth/google?aceite=${aceiteParam}` },
+      options: {
+        redirectTo: `${location.origin}/auth/google?aceite=${aceiteParam}${destinoConvite ? `&next=${encodeURIComponent(destinoConvite)}` : ""}`,
+      },
     });
     if (error) {
       setCarregando(false);
@@ -99,6 +107,11 @@ function EntrarForm() {
       <h1 className="h-title mt-8 text-3xl">
         {modo === "cadastro" ? "Crie sua conta" : "Entrar na agenda"}
       </h1>
+      {destinoConvite && (
+        <p className="mt-3 rounded-lg bg-white px-3 py-2 text-sm text-ink/80">
+          Você está aceitando um convite de clínica. Use o mesmo e-mail que recebeu o convite.
+        </p>
+      )}
 
       <div className="mt-6 space-y-4">
         {modo === "cadastro" && (

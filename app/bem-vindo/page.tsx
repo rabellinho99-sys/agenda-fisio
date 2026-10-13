@@ -16,7 +16,10 @@ export default function BemVindo() {
       const q = new URLSearchParams(window.location.search);
       if (q.get("m") === "google") metodo = "google";
       // só aceita destinos internos conhecidos
-      if (q.get("next") === "/onboarding") destino = "/onboarding";
+      const next = q.get("next") ?? "";
+      if (next === "/onboarding") destino = "/onboarding";
+      // convite de profissional
+      if (/^\/convite\/[a-f0-9]{16,}$/.test(next)) destino = next;
     } catch {}
 
     // espera o pixel carregar antes de registrar o cadastro
