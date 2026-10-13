@@ -16,6 +16,7 @@ type Appt = {
   services: { name: string } | null;
   professionals: { display_name: string } | null;
 };
+type Bloqueio = { id: string; professional_id: string | null; starts_at: string; ends_at: string; reason: string | null };
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   pending: { label: "Aguardando confirmação", cls: "bg-amber/20 text-ink" },
@@ -48,6 +49,8 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
   const [editForm, setEditForm] = useState({ data: "", hora: "", svc: "", prof: "" });
   const [salvandoEdit, setSalvandoEdit] = useState(false);
   const [erroEdit, setErroEdit] = useState<string | null>(null);
+  const [bloqueios, setBloqueios] = useState<Bloqueio[]>([]);
+  const [bloqueando, setBloqueando] = useState(false);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -61,6 +64,16 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
       .lte("starts_at", fim.toISOString())
       .order("starts_at");
     setAppts((data as unknown as Appt[]) ?? []);
+    // bloqueios que encostam neste dia (inclui bloqueios de vários dias)
+    const { data: blocos } = await supabase
+      .from("availability_exceptions")
+      .select("id, professional_id, starts_at, ends_at, reason")
+      .eq("clinic_id", clinicId)
+      .eq("type", "block")
+      .lt("starts_at", fim.toISOString())
+      .gt("ends_at", inicio.toISOString())
+      .order("starts_at");
+    setBloqueios((blocos as Bloqueio[]) ?? []);
     setCarregando(false);
   }, [dia, clinicId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -90,6 +103,26 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
     setAppts((prev) => prev.map((a) => (a.id === id ? { ...a, internal_notes: notaTexto || null } : a)));
     setSalvandoNota(false);
     setNotaAberta(null);
+  }
+
+  async function desbloquear(id: string) {
+    await supabase.from("availability_exceptions").delete().eq("id", id);
+    setBloqueios((prev) => prev.filter((b) => b.id !== id));
+  }
+
+  function nomeProf(id: string | null) {
+    if (!id) return "Toda a clínica";
+    return professionals.find((p) => p.id === id)?.display_name ?? "Profissional";
+  }
+
+  // Bloqueio que cobre o dia todo aparece como "Dia inteiro"
+  function faixaBloqueio(b: Bloqueio) {
+    const ini = new Date(dia); ini.setHours(0, 0, 0, 0);
+    const fim = new Date(dia); fim.setHours(23, 59, 0, 0);
+    if (new Date(b.starts_at) <= ini && new Date(b.ends_at) >= fim) return "Dia inteiro";
+    const de = new Date(b.starts_at) < ini ? "início do dia" : fmtTime(b.starts_at, tz);
+    const ate = new Date(b.ends_at) > fim ? "fim do dia" : fmtTime(b.ends_at, tz);
+    return `${de} até ${ate}`;
   }
 
   function mover(n: number) { const d = new Date(dia); d.setDate(d.getDate() + n); setDia(d); }
@@ -173,13 +206,29 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
 
         <div className="mt-6 space-y-2">
           {carregando && <p className="text-sm text-ink/60">Carregando</p>}
-          {!carregando && appts.length === 0 && (
+          {!carregando && appts.length === 0 && bloqueios.length === 0 && (
             <div className="rounded-xl border border-dashed border-mist p-8 text-center">
               <p className="font-semibold">Nenhum atendimento neste dia</p>
               <p className="mt-1 text-sm text-ink/60">Marque pelo botão ao lado ou compartilhe seu link público.</p>
             </div>
           )}
-          {appts.map((a) => {
+          {[
+            ...bloqueios.map((b) => ({ tipo: "bloqueio" as const, quando: b.starts_at, b })),
+            ...appts.map((a) => ({ tipo: "atendimento" as const, quando: a.starts_at, a })),
+          ].sort((x, y) => x.quando.localeCompare(y.quando)).map((item) => {
+            if (item.tipo === "bloqueio") {
+              const b = item.b;
+              return (
+                <article key={`b-${b.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-ink/25 bg-ink/5 p-4">
+                  <div>
+                    <p className="font-bold">🚫 Horário bloqueado · {faixaBloqueio(b)}</p>
+                    <p className="text-sm text-ink/60">{nomeProf(b.professional_id)}{b.reason ? ` · ${b.reason}` : ""}</p>
+                  </div>
+                  <button className="btn-ghost px-3 py-1 text-xs" onClick={() => desbloquear(b.id)}>Desbloquear</button>
+                </article>
+              );
+            }
+            const a = item.a;
             const st = STATUS[a.status];
             const ativo = !inativos.includes(a.status);
             const conflito = temConflito(a);
@@ -321,6 +370,21 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
         {services.length === 0 && (
           <p className="mt-3 text-sm text-ink/60">Cadastre ao menos um serviço em Serviços para marcar atendimentos.</p>
         )}
+
+        <div className="mt-3">
+          {!bloqueando ? (
+            <button className="btn-ghost w-full" onClick={() => setBloqueando(true)}>Bloquear horário</button>
+          ) : (
+            <BloquearHorario
+              clinicId={clinicId}
+              dia={dia}
+              professionals={professionals}
+              atendimentos={appts.filter((a) => !inativos.includes(a.status))}
+              onClose={() => setBloqueando(false)}
+              onSaved={() => { setBloqueando(false); carregar(); }}
+            />
+          )}
+        </div>
       </aside>
     </div>
   );
@@ -554,6 +618,108 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
       <div className="flex gap-2">
         <button className="btn-primary flex-1" onClick={salvar} disabled={salvando || !podeS || !svc || !prof}>Salvar</button>
         <button className="btn-ghost" onClick={onClose}>Fechar</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Bloquear horário no dia aberto na agenda ───────────────── */
+
+function BloquearHorario({ clinicId, dia, professionals, atendimentos, onClose, onSaved }: {
+  clinicId: string; dia: Date; professionals: Prof[]; atendimentos: Appt[];
+  onClose: () => void; onSaved: () => void;
+}) {
+  const supabase = createClient();
+  const [diaInteiro, setDiaInteiro] = useState(false);
+  const [das, setDas] = useState("14:00");
+  const [ate, setAte] = useState("15:00");
+  const [prof, setProf] = useState<string>(professionals.length === 1 ? professionals[0].id : "todos");
+  const [motivo, setMotivo] = useState("");
+  const [erro, setErro] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
+
+  const data = toISODate(dia);
+  const inicio = diaInteiro ? new Date(`${data}T00:00:00`) : new Date(`${data}T${das}:00`);
+  const fim = diaInteiro
+    ? (() => { const f = new Date(`${data}T00:00:00`); f.setDate(f.getDate() + 1); return f; })()
+    : new Date(`${data}T${ate}:00`);
+
+  // atendimentos marcados dentro do intervalo (o bloqueio não desmarca ninguém)
+  const afetados = atendimentos.filter((a) =>
+    new Date(a.starts_at) < fim && new Date(a.ends_at) > inicio &&
+    (prof === "todos" || professionals.find((p) => p.id === prof)?.display_name === a.professionals?.display_name)
+  );
+
+  async function salvar() {
+    setErro(null);
+    if (!diaInteiro && fim <= inicio) return setErro("O horário final precisa ser depois do inicial.");
+    setSalvando(true);
+    const { error } = await supabase.from("availability_exceptions").insert({
+      clinic_id: clinicId,
+      professional_id: prof === "todos" ? null : prof,
+      starts_at: inicio.toISOString(),
+      ends_at: fim.toISOString(),
+      type: "block",
+      reason: motivo.trim() || null,
+    });
+    setSalvando(false);
+    if (error) return setErro(error.message);
+    onSaved();
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl bg-white p-4">
+      <p className="font-bold">Bloquear horário</p>
+      <p className="text-xs text-ink/60">
+        {dia.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}. O link público deixa de oferecer esse intervalo.
+      </p>
+
+      <label className="flex cursor-pointer items-center gap-2 text-sm">
+        <input type="checkbox" className="size-4" checked={diaInteiro} onChange={(e) => setDiaInteiro(e.target.checked)} />
+        Bloquear o dia inteiro
+      </label>
+
+      {!diaInteiro && (
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="label">Das</label>
+            <input type="time" className="field" value={das} onChange={(e) => setDas(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Até</label>
+            <input type="time" className="field" value={ate} onChange={(e) => setAte(e.target.value)} />
+          </div>
+        </div>
+      )}
+
+      {professionals.length > 1 && (
+        <div>
+          <label className="label">Quem fica bloqueado</label>
+          <select className="field" value={prof} onChange={(e) => setProf(e.target.value)}>
+            <option value="todos">Toda a clínica</option>
+            {professionals.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+          </select>
+        </div>
+      )}
+
+      <div>
+        <label className="label">Motivo (opcional, só a clínica vê)</label>
+        <input className="field" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Consulta médica, reunião..." />
+      </div>
+
+      {afetados.length > 0 && (
+        <p className="rounded-lg bg-amber/20 px-3 py-2 text-xs">
+          Já existe {afetados.length === 1 ? "1 atendimento marcado" : `${afetados.length} atendimentos marcados`} nesse intervalo.
+          O bloqueio não desmarca ninguém; remarque ou cancele pela agenda se precisar.
+        </p>
+      )}
+      {erro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
+
+      <div className="flex gap-2">
+        <button className="btn-primary flex-1" onClick={salvar} disabled={salvando}>
+          {salvando ? "Bloqueando..." : "Bloquear"}
+        </button>
+        <button className="btn-ghost" onClick={onClose}>Cancelar</button>
       </div>
     </div>
   );

@@ -12,10 +12,30 @@ type Bloqueio = { id: string; professional_id: string | null; starts_at: string;
 const padrao = (): Dia[] =>
   Array.from({ length: 7 }, (_, i) => ({ ativo: i >= 1 && i <= 5, blocos: [{ start: "08:00", end: "12:00" }, { start: "14:00", end: "18:00" }] }));
 
-function paraDatetimeLocal(iso: string) {
-  const d = new Date(iso);
+function hojeISO() {
+  const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function diaSeguinte(iso: string) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d;
+}
+
+function descreverBloqueio(b: { starts_at: string; ends_at: string }) {
+  const ini = new Date(b.starts_at);
+  const fim = new Date(b.ends_at);
+  const meiaNoite = (d: Date) => d.getHours() === 0 && d.getMinutes() === 0;
+  const dm = (d: Date) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  if (meiaNoite(ini) && meiaNoite(fim)) {
+    const ultimo = new Date(fim.getTime() - 60000);
+    return dm(ini) === dm(ultimo) ? `${dm(ini)}, dia inteiro` : `${dm(ini)} a ${dm(ultimo)}, dias inteiros`;
+  }
+  const hm = (d: Date) => d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (dm(ini) === dm(fim)) return `${dm(ini)}, das ${hm(ini)} às ${hm(fim)}`;
+  return `${fmtBloqueio(b.starts_at)} até ${fmtBloqueio(b.ends_at)}`;
 }
 
 function fmtBloqueio(iso: string) {
@@ -29,13 +49,14 @@ export function Horarios({ clinicId, professionals, rules, blocks }: { clinicId:
   const [msg, setMsg] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
-  const [bloqueios, setBloqueios] = useState<Bloqueio[]>(blocks);
-  const agora = new Date();
-  const daquiUmaHora = new Date(agora.getTime() + 60 * 60000);
-  const daquiDuasHoras = new Date(agora.getTime() + 2 * 60 * 60000);
+  // só mostra bloqueios que ainda não terminaram
+  const [bloqueios, setBloqueios] = useState<Bloqueio[]>(() => blocks.filter((b) => new Date(b.ends_at) > new Date()));
   const [bProf, setBProf] = useState<string>("todos");
-  const [bInicio, setBInicio] = useState(paraDatetimeLocal(daquiUmaHora.toISOString()));
-  const [bFim, setBFim] = useState(paraDatetimeLocal(daquiDuasHoras.toISOString()));
+  const [bTipo, setBTipo] = useState<"horas" | "dia" | "periodo">("horas");
+  const [bData, setBData] = useState(hojeISO());
+  const [bDataFim, setBDataFim] = useState(hojeISO());
+  const [bDas, setBDas] = useState("14:00");
+  const [bAte, setBAte] = useState("15:00");
   const [bMotivo, setBMotivo] = useState("");
   const [bErro, setBErro] = useState<string | null>(null);
   const [bSalvando, setBSalvando] = useState(false);
@@ -66,9 +87,20 @@ export function Horarios({ clinicId, professionals, rules, blocks }: { clinicId:
 
   async function criarBloqueio() {
     setBErro(null);
-    const inicio = new Date(bInicio);
-    const fim = new Date(bFim);
-    if (fim <= inicio) { setBErro("O fim precisa ser depois do início."); return; }
+    let inicio: Date;
+    let fim: Date;
+    if (bTipo === "horas") {
+      inicio = new Date(`${bData}T${bDas}:00`);
+      fim = new Date(`${bData}T${bAte}:00`);
+      if (fim <= inicio) { setBErro("O horário final precisa ser depois do inicial."); return; }
+    } else if (bTipo === "dia") {
+      inicio = new Date(`${bData}T00:00:00`);
+      fim = diaSeguinte(bData);
+    } else {
+      inicio = new Date(`${bData}T00:00:00`);
+      fim = diaSeguinte(bDataFim);
+      if (fim <= inicio) { setBErro("A data final precisa ser igual ou depois da inicial."); return; }
+    }
     setBSalvando(true);
     const { data, error } = await supabase
       .from("availability_exceptions")
@@ -98,6 +130,79 @@ export function Horarios({ clinicId, professionals, rules, blocks }: { clinicId:
       <h1 className="h-title text-3xl">Horários de atendimento</h1>
       <p className="mt-1 text-ink/70">A página pública só oferece horários dentro desta grade.</p>
 
+      <div className="mt-6 rounded-xl bg-white p-6">
+        <p className="font-bold">Bloquear horários</p>
+        <p className="mt-1 text-sm text-ink/60">
+          Bloqueie 1 ou 2 horários de um dia, o dia inteiro ou vários dias seguidos (viagem, folga, curso). O link público deixa de oferecer esses horários. Também dá para bloquear direto pela Agenda.
+        </p>
+
+        <div className="mt-4 space-y-3">
+          {professionals.length > 1 && (
+            <div>
+              <label className="label">Quem fica bloqueado</label>
+              <select className="field" value={bProf} onChange={(e) => setBProf(e.target.value)}>
+                <option value="todos">Toda a clínica</option>
+                {professionals.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {([
+              ["horas", "Alguns horários"],
+              ["dia", "Dia inteiro"],
+              ["periodo", "Vários dias"],
+            ] as const).map(([v, t]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setBTipo(v)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${bTipo === v ? "bg-moss text-white" : "border border-mist bg-white"}`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className={`grid gap-2 ${bTipo === "dia" ? "grid-cols-1" : "grid-cols-2"}`}>
+            <div>
+              <label className="label">{bTipo === "periodo" ? "De" : "Data"}</label>
+              <input type="date" className="field" value={bData} onChange={(e) => { setBData(e.target.value); if (bDataFim < e.target.value) setBDataFim(e.target.value); }} />
+            </div>
+            {bTipo === "periodo" && (
+              <div>
+                <label className="label">Até</label>
+                <input type="date" className="field" value={bDataFim} min={bData} onChange={(e) => setBDataFim(e.target.value)} />
+              </div>
+            )}
+          </div>
+          {bTipo === "horas" && (
+            <div className="grid grid-cols-2 gap-2">
+              <div><label className="label">Das</label><input type="time" className="field" value={bDas} onChange={(e) => setBDas(e.target.value)} /></div>
+              <div><label className="label">Até</label><input type="time" className="field" value={bAte} onChange={(e) => setBAte(e.target.value)} /></div>
+            </div>
+          )}
+          <div><label className="label">Motivo (opcional, só a clínica vê)</label><input className="field" value={bMotivo} onChange={(e) => setBMotivo(e.target.value)} placeholder="Viagem, folga, curso..." /></div>
+          {bErro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{bErro}</p>}
+          <button className="btn-primary" onClick={criarBloqueio} disabled={bSalvando}>{bSalvando ? "Bloqueando" : "Bloquear horário"}</button>
+        </div>
+
+        <div className="mt-6 space-y-2">
+          {bloqueios.length === 0 && <p className="text-sm text-ink/60">Nenhum bloqueio futuro.</p>}
+          {bloqueios.map((b) => (
+            <div key={b.id} className="flex items-center justify-between gap-3 rounded-lg border border-mist p-3">
+              <div>
+                <p className="text-sm font-semibold">{descreverBloqueio(b)}</p>
+                <p className="text-xs text-ink/60">
+                  {b.professional_id ? professionals.find((p) => p.id === b.professional_id)?.display_name ?? "Profissional" : "Toda a clínica"}
+                  {b.reason ? ` · ${b.reason}` : ""}
+                </p>
+              </div>
+              <button className="text-sm text-danger" onClick={() => removerBloqueio(b.id)}>Remover</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <h2 className="h-title mt-10 text-xl">Grade semanal</h2>
       {professionals.length > 1 && (
         <div className="mt-6">
           <label className="label">Profissional</label>
@@ -142,47 +247,6 @@ export function Horarios({ clinicId, professionals, rules, blocks }: { clinicId:
       {msg && <p className="mt-4 rounded-lg bg-white px-3 py-2 text-sm">{msg}</p>}
       <button className="btn-primary mt-4" onClick={salvar} disabled={salvando || !prof}>{salvando ? "Salvando" : "Salvar horários"}</button>
 
-      <div className="mt-10 rounded-xl bg-white p-6">
-        <p className="font-bold">Bloquear horários</p>
-        <p className="mt-1 text-sm text-ink/60">
-          Use para viagens, folgas ou qualquer período em que o link público não deve oferecer horário, mesmo dentro da grade normal.
-        </p>
-
-        <div className="mt-4 space-y-3">
-          {professionals.length > 1 && (
-            <div>
-              <label className="label">Quem fica bloqueado</label>
-              <select className="field" value={bProf} onChange={(e) => setBProf(e.target.value)}>
-                <option value="todos">Toda a clínica</option>
-                {professionals.map((p) => <option key={p.id} value={p.id}>{p.display_name}</option>)}
-              </select>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-2">
-            <div><label className="label">Início</label><input type="datetime-local" className="field" value={bInicio} onChange={(e) => setBInicio(e.target.value)} /></div>
-            <div><label className="label">Fim</label><input type="datetime-local" className="field" value={bFim} onChange={(e) => setBFim(e.target.value)} /></div>
-          </div>
-          <div><label className="label">Motivo (opcional, só a clínica vê)</label><input className="field" value={bMotivo} onChange={(e) => setBMotivo(e.target.value)} placeholder="Viagem, folga, curso..." /></div>
-          {bErro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{bErro}</p>}
-          <button className="btn-primary" onClick={criarBloqueio} disabled={bSalvando}>{bSalvando ? "Bloqueando" : "Bloquear horário"}</button>
-        </div>
-
-        <div className="mt-6 space-y-2">
-          {bloqueios.length === 0 && <p className="text-sm text-ink/60">Nenhum bloqueio cadastrado.</p>}
-          {bloqueios.map((b) => (
-            <div key={b.id} className="flex items-center justify-between gap-3 rounded-lg border border-mist p-3">
-              <div>
-                <p className="text-sm font-semibold">{fmtBloqueio(b.starts_at)} até {fmtBloqueio(b.ends_at)}</p>
-                <p className="text-xs text-ink/60">
-                  {b.professional_id ? professionals.find((p) => p.id === b.professional_id)?.display_name ?? "Profissional" : "Toda a clínica"}
-                  {b.reason ? ` · ${b.reason}` : ""}
-                </p>
-              </div>
-              <button className="text-sm text-danger" onClick={() => removerBloqueio(b.id)}>Remover</button>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
