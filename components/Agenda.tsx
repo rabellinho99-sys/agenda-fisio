@@ -11,7 +11,7 @@ type Prof = { id: string; display_name: string };
 type Svc = { id: string; name: string; duration_minutes: number; buffer_after_minutes: number; price_cents: number; max_participants: number };
 type Appt = {
   id: string; patient_id: string; patient_package_id: string | null; starts_at: string; ends_at: string; status: string; price_cents: number;
-  color: string | null; internal_notes: string | null;
+  color: string | null; internal_notes: string | null; recurrence_id: string | null;
   patients: { full_name: string; phone: string } | null;
   services: { name: string } | null;
   professionals: { display_name: string } | null;
@@ -51,6 +51,8 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
   const [erroEdit, setErroEdit] = useState<string | null>(null);
   const [bloqueios, setBloqueios] = useState<Bloqueio[]>([]);
   const [bloqueando, setBloqueando] = useState(false);
+  const [modo, setModo] = useState<"dia" | "semana">("dia");
+  const [versao, setVersao] = useState(0); // recarrega a visão semanal depois de salvar
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -58,7 +60,7 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
     const fim = new Date(dia); fim.setHours(23, 59, 59, 999);
     const { data } = await supabase
       .from("appointments")
-      .select("id, patient_id, patient_package_id, starts_at, ends_at, status, price_cents, color, internal_notes, patients(full_name, phone), services(name), professionals(display_name)")
+      .select("id, patient_id, patient_package_id, starts_at, ends_at, status, price_cents, color, internal_notes, recurrence_id, patients(full_name, phone), services(name), professionals(display_name)")
       .eq("clinic_id", clinicId)
       .gte("starts_at", inicio.toISOString())
       .lte("starts_at", fim.toISOString())
@@ -103,6 +105,18 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
     setAppts((prev) => prev.map((a) => (a.id === id ? { ...a, internal_notes: notaTexto || null } : a)));
     setSalvandoNota(false);
     setNotaAberta(null);
+  }
+
+  async function cancelarSerie(a: Appt) {
+    if (!a.recurrence_id) return;
+    if (!window.confirm(`Cancelar esta sessão e todas as próximas da série de ${a.patients?.full_name ?? "paciente"}?\n\nAs sessões anteriores continuam como estão.`)) return;
+    await supabase
+      .from("appointments")
+      .update({ status: "cancelled_by_clinic", cancelled_at: new Date().toISOString() })
+      .eq("recurrence_id", a.recurrence_id)
+      .gte("starts_at", a.starts_at)
+      .in("status", ["pending", "confirmed"]);
+    carregar();
   }
 
   async function desbloquear(id: string) {
@@ -187,13 +201,33 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
       <section>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-sm text-ink/60 capitalize">{fmtDateLong(dia, tz)}</p>
-            <h1 className="h-display text-5xl">{dia.getDate()}</h1>
+            {modo === "dia" ? (
+              <>
+                <p className="text-sm text-ink/60 capitalize">{fmtDateLong(dia, tz)}</p>
+                <h1 className="h-display text-5xl">{dia.getDate()}</h1>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-ink/60">Semana</p>
+                <h1 className="h-display text-3xl">{tituloSemana(dia)}</h1>
+              </>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-ghost" onClick={() => mover(-1)}>Anterior</button>
+            <div className="flex rounded-lg bg-white p-1">
+              {(["dia", "semana"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setModo(m)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-semibold ${modo === m ? "bg-moss text-white" : "text-ink"}`}
+                >
+                  {m === "dia" ? "Dia" : "Semana"}
+                </button>
+              ))}
+            </div>
+            <button className="btn-ghost" onClick={() => mover(modo === "semana" ? -7 : -1)}>Anterior</button>
             <button className="btn-ghost" onClick={() => setDia(new Date())}>Hoje</button>
-            <button className="btn-ghost" onClick={() => mover(1)}>Próximo</button>
+            <button className="btn-ghost" onClick={() => mover(modo === "semana" ? 7 : 1)}>Próximo</button>
             <input
               type="date"
               className="field text-sm"
@@ -204,7 +238,17 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
           </div>
         </div>
 
-        <div className="mt-6 space-y-2">
+        {modo === "semana" && (
+          <SemanaAgenda
+            clinicId={clinicId}
+            dia={dia}
+            tz={tz}
+            versao={versao}
+            onAbrirDia={(d) => { setDia(d); setModo("dia"); }}
+          />
+        )}
+
+        <div className={`mt-6 space-y-2 ${modo === "semana" ? "hidden" : ""}`}>
           {carregando && <p className="text-sm text-ink/60">Carregando</p>}
           {!carregando && appts.length === 0 && bloqueios.length === 0 && (
             <div className="rounded-xl border border-dashed border-mist p-8 text-center">
@@ -242,7 +286,10 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
                 </div>
                 <div>
                   <Link href={`/painel/pacientes/${a.patient_id}`} className="font-semibold hover:underline">{a.patients?.full_name}</Link>
-                  <p className="text-sm text-ink/70">{a.services?.name} com {a.professionals?.display_name}</p>
+                  <p className="text-sm text-ink/70">
+                    {a.services?.name} com {a.professionals?.display_name}
+                    {a.recurrence_id && <span className="ml-2 rounded bg-moss/10 px-1.5 py-0.5 text-xs font-semibold text-moss-deep">Horário fixo</span>}
+                  </p>
                   {(() => {
                     const turma = participantesTurma(a);
                     return turma.length > 1 ? (
@@ -296,6 +343,9 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
                         {a.status === "pending" ? "Recusar" : "Cancelar"}
                       </button>
                       <button className="btn-ghost px-2 py-1 text-xs" onClick={() => abrirEdicao(a)}>Editar</button>
+                      {a.recurrence_id && (
+                        <button className="btn-danger px-2 py-1 text-xs" onClick={() => cancelarSerie(a)}>Cancelar esta e as próximas</button>
+                      )}
                     </div>
                   )}
                   {ativo && (
@@ -364,7 +414,7 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
           </button>
         ) : (
           <NovoAtendimento clinicId={clinicId} dia={dia} professionals={professionals} services={services}
-            onClose={() => setNovo(false)} onSaved={() => { setNovo(false); carregar(); }}
+            onClose={() => setNovo(false)} onSaved={() => { setNovo(false); carregar(); setVersao((v) => v + 1); }}
           />
         )}
         {services.length === 0 && (
@@ -381,7 +431,7 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
               professionals={professionals}
               atendimentos={appts.filter((a) => !inativos.includes(a.status))}
               onClose={() => setBloqueando(false)}
-              onSaved={() => { setBloqueando(false); carregar(); }}
+              onSaved={() => { setBloqueando(false); carregar(); setVersao((v) => v + 1); }}
             />
           )}
         </div>
@@ -415,6 +465,10 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
   const [hora, setHora] = useState("09:00");
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [repetir, setRepetir] = useState<"nao" | "semanal" | "quinzenal">("nao");
+  const [ateData, setAteData] = useState(() => { const d = new Date(dia); d.setMonth(d.getMonth() + 3); return toISODate(d); });
+
+  const datasSerie = calcularDatas(data, hora, repetir, ateData);
 
   // carrega a lista de pacientes uma vez; a busca é feita na tela, com a mesma regra das outras telas
   useEffect(() => {
@@ -495,34 +549,96 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
     const fim = new Date(inicio.getTime() + (s.duration_minutes + s.buffer_after_minutes) * 60000);
 
     let pacoteId: string | null = null;
-    let preco = s.price_cents;
+    let saldoPacote = 0;
     const { data: pacotes } = await supabase.rpc("active_packages", { p_patient: pacienteId, p_service: svc });
     const lista = (pacotes ?? []) as { id: string; package_name: string; saldo: number }[];
     if (lista.length > 0) {
       const p0 = lista[0];
       const nomePac = selecionado?.full_name ?? novoNome;
-      if (window.confirm(`${nomePac} tem ${p0.saldo} sessão(ões) no ${p0.package_name}.\n\nUsar uma sessão do pacote neste atendimento?`)) {
-        pacoteId = p0.id; preco = 0;
-      }
+      const pergunta = repetir === "nao"
+        ? `${nomePac} tem ${p0.saldo} sessão(ões) no ${p0.package_name}.\n\nUsar uma sessão do pacote neste atendimento?`
+        : `${nomePac} tem ${p0.saldo} sessão(ões) no ${p0.package_name}.\n\nUsar o pacote nas primeiras sessões desta série?`;
+      if (window.confirm(pergunta)) { pacoteId = p0.id; saldoPacote = p0.saldo; }
     }
 
-    const { data: conflitos } = await supabase.rpc("find_conflicts", {
-      p_professional: prof, p_starts: inicio.toISOString(), p_ends: fim.toISOString(), p_service: svc,
-    });
-    if (conflitos && conflitos.length > 0) {
-      const txt = (conflitos as { patient_name: string; service_name: string; starts_at: string }[])
-        .map((c) => `${fmtTime(c.starts_at)} ${c.patient_name} (${c.service_name})`).join("\n");
-      const ok = window.confirm(`Este horário já tem atendimento marcado:\n\n${txt}\n\nMarcar mesmo assim, em paralelo?`);
+    const duracaoMs = (s.duration_minutes + s.buffer_after_minutes) * 60000;
+
+    // ── Atendimento único (como antes) ──
+    if (repetir === "nao") {
+      const { data: conflitos } = await supabase.rpc("find_conflicts", {
+        p_professional: prof, p_starts: inicio.toISOString(), p_ends: fim.toISOString(), p_service: svc,
+      });
+      if (conflitos && conflitos.length > 0) {
+        const txt = (conflitos as { patient_name: string; service_name: string; starts_at: string }[])
+          .map((c) => `${fmtTime(c.starts_at)} ${c.patient_name} (${c.service_name})`).join("\n");
+        const ok = window.confirm(`Este horário já tem atendimento marcado:\n\n${txt}\n\nMarcar mesmo assim, em paralelo?`);
+        if (!ok) { setSalvando(false); return; }
+      }
+      const { error: e2 } = await supabase.from("appointments").insert({
+        clinic_id: clinicId, patient_id: pacienteId, professional_id: prof, service_id: svc,
+        starts_at: inicio.toISOString(), ends_at: fim.toISOString(), patient_package_id: pacoteId,
+        status: "confirmed", source: "panel", price_cents: pacoteId ? 0 : s.price_cents, confirmed_at: new Date().toISOString(),
+      });
+      setSalvando(false);
+      if (e2) return setErro(e2.message);
+      onSaved();
+      return;
+    }
+
+    // ── Horário fixo: cria todas as sessões da série ──
+    if (datasSerie.length < 2) { setSalvando(false); return setErro("Escolha uma data final que gere pelo menos 2 sessões."); }
+
+    const ultimaFim = new Date(datasSerie[datasSerie.length - 1].getTime() + duracaoMs);
+    const { data: blocos } = await supabase
+      .from("availability_exceptions")
+      .select("professional_id, starts_at, ends_at")
+      .eq("clinic_id", clinicId).eq("type", "block")
+      .lt("starts_at", ultimaFim.toISOString())
+      .gt("ends_at", datasSerie[0].toISOString());
+
+    const ocupadas: { d: Date; motivo: string }[] = [];
+    const livres: Date[] = [];
+    for (const d of datasSerie) {
+      const f = new Date(d.getTime() + duracaoMs);
+      const bloqueado = ((blocos ?? []) as { professional_id: string | null; starts_at: string; ends_at: string }[])
+        .some((b) => (!b.professional_id || b.professional_id === prof) && new Date(b.starts_at) < f && new Date(b.ends_at) > d);
+      if (bloqueado) { ocupadas.push({ d, motivo: "horário bloqueado" }); continue; }
+      const { data: conf } = await supabase.rpc("find_conflicts", {
+        p_professional: prof, p_starts: d.toISOString(), p_ends: f.toISOString(), p_service: svc,
+      });
+      const c0 = (conf ?? []) as { patient_name: string }[];
+      if (c0.length > 0) { ocupadas.push({ d, motivo: `já tem ${c0[0].patient_name}` }); continue; }
+      livres.push(d);
+    }
+
+    if (livres.length === 0) { setSalvando(false); return setErro("Todas as datas da série já estão ocupadas ou bloqueadas."); }
+    if (ocupadas.length > 0) {
+      const txt = ocupadas.map((o) => `${o.d.toLocaleDateString("pt-BR")} (${o.motivo})`).join("\n");
+      const ok = window.confirm(
+        `${ocupadas.length} data(s) da série estão ocupadas:\n\n${txt}\n\nOK: marcar as outras ${livres.length} sessões e pular essas datas.\nCancelar: voltar e ajustar.`
+      );
       if (!ok) { setSalvando(false); return; }
     }
 
-    const { error: e2 } = await supabase.from("appointments").insert({
-      clinic_id: clinicId, patient_id: pacienteId, professional_id: prof, service_id: svc,
-      starts_at: inicio.toISOString(), ends_at: fim.toISOString(), patient_package_id: pacoteId,
-      status: "confirmed", source: "panel", price_cents: preco, confirmed_at: new Date().toISOString(),
+    const serie = typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
+          (Number(c) ^ (Math.random() * 16) >> (Number(c) / 4)).toString(16));
+    const agoraISO = new Date().toISOString();
+    const linhas = livres.map((d, i) => {
+      const usaPacote = !!pacoteId && i < saldoPacote;
+      return {
+        clinic_id: clinicId, patient_id: pacienteId, professional_id: prof, service_id: svc,
+        starts_at: d.toISOString(), ends_at: new Date(d.getTime() + duracaoMs).toISOString(),
+        patient_package_id: usaPacote ? pacoteId : null,
+        status: "confirmed", source: "panel", price_cents: usaPacote ? 0 : s.price_cents,
+        confirmed_at: agoraISO, recurrence_id: serie,
+      };
     });
+    const { error: e3 } = await supabase.from("appointments").insert(linhas);
     setSalvando(false);
-    if (e2) return setErro(e2.message);
+    if (e3) return setErro(e3.message);
+    window.alert(`${linhas.length} sessões marcadas, até ${livres[livres.length - 1].toLocaleDateString("pt-BR")}.${ocupadas.length ? ` ${ocupadas.length} data(s) puladas.` : ""}`);
     onSaved();
   }
 
@@ -614,6 +730,25 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
         <div><label className="label">Data</label><input type="date" className="field" value={data} onChange={(e) => setData(e.target.value)} /></div>
         <div><label className="label">Hora</label><input type="time" className="field" value={hora} onChange={(e) => setHora(e.target.value)} step={300} /></div>
       </div>
+      <div>
+        <label className="label">Repetir</label>
+        <select className="field w-full" value={repetir} onChange={(e) => setRepetir(e.target.value as "nao" | "semanal" | "quinzenal")}>
+          <option value="nao">Não repetir</option>
+          <option value="semanal">Toda semana (horário fixo)</option>
+          <option value="quinzenal">A cada 2 semanas</option>
+        </select>
+      </div>
+      {repetir !== "nao" && (
+        <div>
+          <label className="label">Repetir até</label>
+          <input type="date" className="field" value={ateData} min={data} onChange={(e) => setAteData(e.target.value)} />
+          <p className="mt-1 text-xs text-ink/60">
+            {datasSerie.length} {datasSerie.length === 1 ? "sessão" : "sessões"}, {repetir === "semanal" ? "toda" : "a cada 2 semanas na"}{" "}
+            {new Date(`${data}T12:00:00`).toLocaleDateString("pt-BR", { weekday: "long" })} às {hora}
+            {datasSerie.length >= 52 ? " (máximo de 52 por vez)" : ""}.
+          </p>
+        </div>
+      )}
       {erro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
       <div className="flex gap-2">
         <button className="btn-primary flex-1" onClick={salvar} disabled={salvando || !podeS || !svc || !prof}>Salvar</button>
@@ -720,6 +855,134 @@ function BloquearHorario({ clinicId, dia, professionals, atendimentos, onClose, 
           {salvando ? "Bloqueando..." : "Bloquear"}
         </button>
         <button className="btn-ghost" onClick={onClose}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Datas de uma série (horário fixo) ──────────────────────── */
+
+function calcularDatas(data: string, hora: string, repetir: "nao" | "semanal" | "quinzenal", ateData: string): Date[] {
+  const inicio = new Date(`${data}T${hora}:00`);
+  if (Number.isNaN(inicio.getTime())) return [];
+  if (repetir === "nao") return [inicio];
+  const passo = repetir === "quinzenal" ? 14 : 7;
+  const limite = new Date(`${ateData}T23:59:59`);
+  const datas: Date[] = [];
+  for (let k = 0; datas.length < 52; k++) {
+    const d = new Date(inicio);
+    d.setDate(d.getDate() + k * passo);
+    if (d > limite) break;
+    datas.push(d);
+  }
+  return datas;
+}
+
+/* ── Visão semanal ──────────────────────────────────────────── */
+
+function inicioSemana(d: Date) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); // segunda-feira
+  return x;
+}
+
+function tituloSemana(d: Date) {
+  const ini = inicioSemana(d);
+  const fim = new Date(ini); fim.setDate(fim.getDate() + 6);
+  const mes = (x: Date) => x.toLocaleDateString("pt-BR", { month: "long" });
+  return ini.getMonth() === fim.getMonth()
+    ? `${ini.getDate()} a ${fim.getDate()} de ${mes(fim)}`
+    : `${ini.getDate()} de ${mes(ini)} a ${fim.getDate()} de ${mes(fim)}`;
+}
+
+type ApptSemana = {
+  id: string; starts_at: string; ends_at: string; status: string; color: string | null; recurrence_id: string | null;
+  patients: { full_name: string } | null; services: { name: string } | null; professionals: { display_name: string } | null;
+};
+
+function SemanaAgenda({ clinicId, dia, tz, versao, onAbrirDia }: {
+  clinicId: string; dia: Date; tz: string; versao: number; onAbrirDia: (d: Date) => void;
+}) {
+  const supabase = createClient();
+  const [itens, setItens] = useState<ApptSemana[]>([]);
+  const [blocos, setBlocos] = useState<Bloqueio[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const ini = useMemo(() => inicioSemana(dia), [dia]);
+  const dias = useMemo(() => Array.from({ length: 7 }, (_, i) => { const d = new Date(ini); d.setDate(d.getDate() + i); return d; }), [ini]);
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      setCarregando(true);
+      const fim = new Date(ini); fim.setDate(fim.getDate() + 7);
+      const [{ data: ap }, { data: bl }] = await Promise.all([
+        supabase.from("appointments")
+          .select("id, starts_at, ends_at, status, color, recurrence_id, patients(full_name), services(name), professionals(display_name)")
+          .eq("clinic_id", clinicId)
+          .gte("starts_at", ini.toISOString()).lt("starts_at", fim.toISOString())
+          .order("starts_at"),
+        supabase.from("availability_exceptions")
+          .select("id, professional_id, starts_at, ends_at, reason")
+          .eq("clinic_id", clinicId).eq("type", "block")
+          .lt("starts_at", fim.toISOString()).gt("ends_at", ini.toISOString()),
+      ]);
+      if (!ativo) return;
+      setItens((ap as unknown as ApptSemana[]) ?? []);
+      setBlocos((bl as Bloqueio[]) ?? []);
+      setCarregando(false);
+    })();
+    return () => { ativo = false; };
+  }, [ini, clinicId, versao]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hoje = toISODate(new Date());
+  const cancelados = ["cancelled_by_patient", "cancelled_by_clinic"];
+
+  return (
+    <div className="mt-6">
+      {carregando && <p className="mb-2 text-sm text-ink/60">Carregando</p>}
+      <div className="grid gap-2 md:grid-cols-7">
+        {dias.map((d) => {
+          const chave = toISODate(d);
+          const doDia = itens.filter((a) => toISODate(new Date(a.starts_at)) === chave);
+          const ativos = doDia.filter((a) => !cancelados.includes(a.status));
+          const fimDia = new Date(d); fimDia.setDate(fimDia.getDate() + 1);
+          const blocosDia = blocos.filter((b) => new Date(b.starts_at) < fimDia && new Date(b.ends_at) > d);
+          return (
+            <div key={chave} className={`rounded-xl bg-white p-2 ${chave === hoje ? "ring-2 ring-moss" : ""}`}>
+              <button className="w-full rounded-lg px-1 py-1 text-left hover:bg-paper" onClick={() => onAbrirDia(new Date(`${chave}T12:00:00`))}>
+                <p className="text-xs capitalize text-ink/60">{d.toLocaleDateString("pt-BR", { weekday: "short" })}</p>
+                <p className="text-lg font-extrabold leading-tight">{d.getDate()}</p>
+                <p className="text-xs text-ink/50">{ativos.length} {ativos.length === 1 ? "atendimento" : "atendimentos"}</p>
+              </button>
+              <div className="mt-1 space-y-1">
+                {blocosDia.map((b) => {
+                  const diaInteiro = new Date(b.starts_at) <= d && new Date(b.ends_at) >= fimDia;
+                  return (
+                    <p key={b.id} className="rounded-md border border-dashed border-ink/25 bg-ink/5 px-1.5 py-1 text-[11px] text-ink/70">
+                      🚫 {diaInteiro ? "Dia bloqueado" : `${fmtTime(b.starts_at, tz)} a ${fmtTime(b.ends_at, tz)}`}
+                    </p>
+                  );
+                })}
+                {doDia.map((a) => {
+                  const cancelado = cancelados.includes(a.status);
+                  const cor = a.color ? CORES[a.color] : null;
+                  return (
+                    <button
+                      key={a.id}
+                      onClick={() => onAbrirDia(new Date(`${chave}T12:00:00`))}
+                      className={`block w-full rounded-md bg-paper px-1.5 py-1 text-left text-[11px] leading-tight ${cor ? `border-l-4 ${cor.borda}` : ""} ${cancelado ? "line-through opacity-50" : ""}`}
+                    >
+                      <span className="font-bold">{fmtTime(a.starts_at, tz)}</span>{" "}
+                      {a.patients?.full_name?.split(" ").slice(0, 2).join(" ")}
+                      <span className="block text-ink/60">{a.services?.name}{a.recurrence_id ? " · fixo" : ""}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
