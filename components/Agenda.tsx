@@ -53,6 +53,7 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
   const [bloqueando, setBloqueando] = useState(false);
   const [modo, setModo] = useState<"dia" | "semana">("dia");
   const [versao, setVersao] = useState(0); // recarrega a visão semanal depois de salvar
+  const [mostrarCancelados, setMostrarCancelados] = useState(false);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -117,6 +118,29 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
       .gte("starts_at", a.starts_at)
       .in("status", ["pending", "confirmed"]);
     carregar();
+  }
+
+  async function excluir(a: Appt) {
+    const quando = `${new Date(a.starts_at).toLocaleDateString("pt-BR")} às ${fmtTime(a.starts_at, tz)}`;
+    if (!window.confirm(`Excluir o atendimento de ${a.patients?.full_name ?? "paciente"} em ${quando}?\n\nEle some da agenda. A evolução já registrada no prontuário continua guardada.`)) return;
+    const { error } = await supabase.from("appointments").delete().eq("id", a.id);
+    if (error) return window.alert(error.message);
+    carregar();
+    setVersao((v) => v + 1);
+  }
+
+  async function excluirSerie(a: Appt) {
+    if (!a.recurrence_id) return;
+    if (!window.confirm(`Excluir esta sessão e todas as próximas da série de ${a.patients?.full_name ?? "paciente"}?\n\nSessões já marcadas como Realizado não são excluídas.`)) return;
+    const { error } = await supabase
+      .from("appointments")
+      .delete()
+      .eq("recurrence_id", a.recurrence_id)
+      .gte("starts_at", a.starts_at)
+      .neq("status", "completed");
+    if (error) return window.alert(error.message);
+    carregar();
+    setVersao((v) => v + 1);
   }
 
   async function desbloquear(id: string) {
@@ -244,13 +268,20 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
             dia={dia}
             tz={tz}
             versao={versao}
+            mostrarCancelados={mostrarCancelados}
             onAbrirDia={(d) => { setDia(d); setModo("dia"); }}
           />
         )}
 
         <div className={`mt-6 space-y-2 ${modo === "semana" ? "hidden" : ""}`}>
           {carregando && <p className="text-sm text-ink/60">Carregando</p>}
-          {!carregando && appts.length === 0 && bloqueios.length === 0 && (
+          {!carregando && appts.some((a) => a.status.startsWith("cancelled")) && (
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-ink/60">
+              <input type="checkbox" className="size-4" checked={mostrarCancelados} onChange={(e) => setMostrarCancelados(e.target.checked)} />
+              Mostrar cancelados ({appts.filter((a) => a.status.startsWith("cancelled")).length})
+            </label>
+          )}
+          {!carregando && appts.filter((a) => mostrarCancelados || !a.status.startsWith("cancelled")).length === 0 && bloqueios.length === 0 && (
             <div className="rounded-xl border border-dashed border-mist p-8 text-center">
               <p className="font-semibold">Nenhum atendimento neste dia</p>
               <p className="mt-1 text-sm text-ink/60">Marque pelo botão ao lado ou compartilhe seu link público.</p>
@@ -258,7 +289,9 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
           )}
           {[
             ...bloqueios.map((b) => ({ tipo: "bloqueio" as const, quando: b.starts_at, b })),
-            ...appts.map((a) => ({ tipo: "atendimento" as const, quando: a.starts_at, a })),
+            ...appts
+              .filter((a) => mostrarCancelados || !a.status.startsWith("cancelled"))
+              .map((a) => ({ tipo: "atendimento" as const, quando: a.starts_at, a })),
           ].sort((x, y) => x.quando.localeCompare(y.quando)).map((item) => {
             if (item.tipo === "bloqueio") {
               const b = item.b;
@@ -345,6 +378,15 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
                       <button className="btn-ghost px-2 py-1 text-xs" onClick={() => abrirEdicao(a)}>Editar</button>
                       {a.recurrence_id && (
                         <button className="btn-danger px-2 py-1 text-xs" onClick={() => cancelarSerie(a)}>Cancelar esta e as próximas</button>
+                      )}
+                      <button className="btn-ghost px-2 py-1 text-xs text-ink/60" onClick={() => excluir(a)}>Excluir</button>
+                    </div>
+                  )}
+                  {!ativo && (
+                    <div className="flex flex-wrap gap-1">
+                      <button className="btn-ghost px-2 py-1 text-xs" onClick={() => excluir(a)}>Excluir</button>
+                      {a.recurrence_id && a.status !== "completed" && (
+                        <button className="btn-ghost px-2 py-1 text-xs" onClick={() => excluirSerie(a)}>Excluir esta e as próximas</button>
                       )}
                     </div>
                   )}
@@ -901,8 +943,8 @@ type ApptSemana = {
   patients: { full_name: string } | null; services: { name: string } | null; professionals: { display_name: string } | null;
 };
 
-function SemanaAgenda({ clinicId, dia, tz, versao, onAbrirDia }: {
-  clinicId: string; dia: Date; tz: string; versao: number; onAbrirDia: (d: Date) => void;
+function SemanaAgenda({ clinicId, dia, tz, versao, mostrarCancelados, onAbrirDia }: {
+  clinicId: string; dia: Date; tz: string; versao: number; mostrarCancelados: boolean; onAbrirDia: (d: Date) => void;
 }) {
   const supabase = createClient();
   const [itens, setItens] = useState<ApptSemana[]>([]);
@@ -944,7 +986,7 @@ function SemanaAgenda({ clinicId, dia, tz, versao, onAbrirDia }: {
       <div className="grid gap-2 md:grid-cols-7">
         {dias.map((d) => {
           const chave = toISODate(d);
-          const doDia = itens.filter((a) => toISODate(new Date(a.starts_at)) === chave);
+          const doDia = itens.filter((a) => toISODate(new Date(a.starts_at)) === chave && (mostrarCancelados || !cancelados.includes(a.status)));
           const ativos = doDia.filter((a) => !cancelados.includes(a.status));
           const fimDia = new Date(d); fimDia.setDate(fimDia.getDate() + 1);
           const blocosDia = blocos.filter((b) => new Date(b.starts_at) < fimDia && new Date(b.ends_at) > d);
