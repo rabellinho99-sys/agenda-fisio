@@ -6,6 +6,7 @@ import { SairButton } from "@/components/SairButton";
 import { Gate } from "@/components/Gate";
 import { BloqueioPlano } from "@/components/BloqueioPlano";
 import SinoPendentes from "@/components/SinoPendentes";
+import { AvisoWhatsApp } from "@/components/AvisoWhatsApp";
 import { NOME_PLANO, temRecurso, type Recurso, type Recursos } from "@/lib/planos";
 
 const WHATSAPP_SUPORTE =
@@ -49,14 +50,20 @@ export default async function PainelLayout({ children }: { children: React.React
 
   const { data: member } = await supabase
     .from("clinic_members")
-    .select("clinic_id, clinics(name, slug)")
+    .select("clinic_id, role, clinics(name, slug, phone, whatsapp)")
     .eq("user_id", user.id)
     .eq("active", true)
     .limit(1)
     .maybeSingle();
 
   if (!member) redirect("/onboarding");
-  const clinic = member.clinics as unknown as { name: string; slug: string };
+  const clinic = member.clinics as unknown as {
+    name: string;
+    slug: string;
+    phone: string | null;
+    whatsapp: string | null;
+  };
+  const semWhatsApp = member.role === "owner" && !clinic.phone && !clinic.whatsapp;
 
   const { data: access } = await supabase
     .rpc("clinic_access_state", { p_clinic: member.clinic_id });
@@ -111,6 +118,8 @@ export default async function PainelLayout({ children }: { children: React.React
           <SairButton />
         </div>
       </header>
+
+      {semWhatsApp && <AvisoWhatsApp clinicId={member.clinic_id} />}
 
       {access === "trial" && diasTrial <= 7 && (
         <p className="mb-4 rounded-lg bg-amber/20 px-4 py-2 text-sm">
