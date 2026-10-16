@@ -44,6 +44,7 @@ export function Prontuario({ patient, notes: inicial, appts, professionals, meuP
   const [prof, setProf] = useState(meuProfissional ?? "");
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [editandoNota, setEditandoNota] = useState<string | null>(null); // id da evolução em correção
   const [editPac, setEditPac] = useState(false);
   const [pac, setPac] = useState({ full_name: patient.full_name, phone: patient.phone, birth_date: patient.birth_date ?? "", cpf: patient.cpf ?? "", notes: patient.notes ?? "" });
   const [adenda, setAdenda] = useState<Record<string, string>>({});
@@ -90,6 +91,32 @@ export function Prontuario({ patient, notes: inicial, appts, professionals, meuP
     ...(n.pain_after != null ? [{ x: n.created_at, y: n.pain_after, m: "depois" }] : []),
   ]);
 
+  // Evolução pode ser corrigida nas primeiras 24h (depois trava e só aceita adenda)
+  function podeEditar(n: Note) {
+    return !n.locked_at && Date.now() - new Date(n.created_at).getTime() < 24 * 60 * 60 * 1000;
+  }
+
+  function editarNota(n: Note) {
+    setErro(null);
+    setEditandoNota(n.id);
+    setProf(n.professional_id ?? prof);
+    setForm({
+      appointment_id: n.appointment_id ?? "",
+      subjective: n.subjective ?? "", objective: n.objective ?? "", assessment: n.assessment ?? "", plan: n.plan ?? "",
+      pain_before: n.pain_before == null ? "" : String(n.pain_before),
+      pain_after: n.pain_after == null ? "" : String(n.pain_after),
+      procedures: (n.procedures ?? []).map((p) => ({ name: p.name ?? "", site: p.site ?? "", volume_ml: p.volume_ml ?? "", lot: p.lot ?? "" })),
+    });
+    setEditando(true);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function fecharForm() {
+    setEditando(false);
+    setEditandoNota(null);
+    setForm(vazio);
+  }
+
   async function salvarNota() {
     setErro(null); setSalvando(true);
     const payload = {
@@ -100,6 +127,24 @@ export function Prontuario({ patient, notes: inicial, appts, professionals, meuP
       pain_after: form.pain_after === "" ? null : Number(form.pain_after),
       procedures: form.procedures.filter((p) => p.name),
     };
+    // Correção de uma evolução já salva
+    if (editandoNota) {
+      const { clinic_id: _c, patient_id: _p, ...alteracoes } = payload;
+      void _c; void _p;
+      const { data, error } = await supabase.from("clinical_notes").update(alteracoes).eq("id", editandoNota)
+        .select("*, professionals(display_name), appointments(starts_at, services(name))").single();
+      setSalvando(false);
+      if (error) {
+        return setErro(error.message.includes("24h")
+          ? "Esta evolução já passou de 24 horas e está travada. Use a adenda para complementar."
+          : error.message);
+      }
+      setNotes(notes.map((n) => (n.id === editandoNota ? (data as Note) : n)));
+      fecharForm();
+      router.refresh();
+      return;
+    }
+
     const { data, error } = await supabase.from("clinical_notes").insert(payload)
       .select("*, professionals(display_name), appointments(starts_at, services(name))").single();
     setSalvando(false);
@@ -277,6 +322,11 @@ export function Prontuario({ patient, notes: inicial, appts, professionals, meuP
               {(n.pain_before != null || n.pain_after != null) && (
                 <p className="mt-1 text-sm">EVA {n.pain_before ?? "-"} → {n.pain_after ?? "-"}</p>
               )}
+              {podeEditar(n) && (
+                <button className="mt-2 text-sm font-semibold text-moss underline underline-offset-4" onClick={() => editarNota(n)}>
+                  {editandoNota === n.id ? "Editando ao lado" : "Editar evolução"}
+                </button>
+              )}
               <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                 <Campo l="S" v={n.subjective} /><Campo l="O" v={n.objective} /><Campo l="A" v={n.assessment} /><Campo l="P" v={n.plan} />
               </dl>
@@ -305,7 +355,12 @@ export function Prontuario({ patient, notes: inicial, appts, professionals, meuP
           <button className="btn-primary w-full" onClick={() => setEditando(true)}>Nova evolução</button>
         ) : (
           <div className="space-y-3 rounded-xl bg-white p-4">
-            <p className="font-bold">Nova evolução</p>
+            <p className="font-bold">{editandoNota ? "Corrigir evolução" : "Nova evolução"}</p>
+            {editandoNota && (
+              <p className="rounded-lg bg-amber/15 px-3 py-2 text-xs">
+                A alteração fica registrada no histórico do prontuário. Depois de 24h do registro, só é possível acrescentar adenda.
+              </p>
+            )}
             <div><label className="label">Atendimento</label>
               <select className="field" value={form.appointment_id} onChange={(e) => setForm({ ...form, appointment_id: e.target.value })}>
                 <option value="">Sem vínculo</option>
@@ -346,9 +401,9 @@ export function Prontuario({ patient, notes: inicial, appts, professionals, meuP
             {erro && <p className="rounded-lg bg-blush px-3 py-2 text-sm text-danger">{erro}</p>}
             <div className="flex gap-2">
               <button className="btn-primary flex-1" onClick={salvarNota} disabled={salvando || (!form.subjective && !form.objective && !form.assessment && !form.plan && form.procedures.length === 0)}>
-                {salvando ? "Salvando" : "Salvar evolução"}
+                {salvando ? "Salvando" : editandoNota ? "Salvar correção" : "Salvar evolução"}
               </button>
-              <button className="btn-ghost" onClick={() => { setEditando(false); setForm(vazio); }}>Fechar</button>
+              <button className="btn-ghost" onClick={fecharForm}>Fechar</button>
             </div>
             <p className="text-xs text-ink/60">Salvar com atendimento vinculado marca a sessão como Realizada. Após 24h a evolução trava e só aceita adenda.</p>
           </div>
