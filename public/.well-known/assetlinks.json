@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "br.com.agendafisiopro.app",
+    "sha256_cert_fingerprints": [
+      "C2:38:51:74:13:6B:03:DD:8B:E3:BD:19:13:9A:EA:E4:F0:B9:D0:72:F1:3F:2C:69:F6:39:79:53:AC:1B:23:4C"
+    ]
+  }
+}]
