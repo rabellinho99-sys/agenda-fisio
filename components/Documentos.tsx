@@ -14,7 +14,19 @@ import {
   type CifItem,
 } from "@/lib/cif";
 import {
+  BASE_LEGAL_ORCAMENTO,
   BASE_LEGAL_PRESCRICAO,
+  IDS_ORCAMENTO,
+  MODELOS_ORCAMENTO,
+  ORCAMENTO_INICIAL,
+  descontoOrcamento,
+  novoItemOrcamento,
+  subtotalItem,
+  subtotalOrcamento,
+  totalOrcamento,
+  type DadosOrcamento,
+  type DescontoTipo,
+  type ItemOrcamento,
   BLOCOS,
   CAMPOS_INICIAIS,
   EXAMES_IMAGEM,
@@ -66,6 +78,7 @@ type Corpo = {
   solicitacao?: { exames: ExameSolicitado[]; hipotese: string };
   prescricao?: { itens: ItemPrescricao[] };
   recibo?: DadosRecibo & { total_cents?: number };
+  orcamento?: DadosOrcamento & { total_cents?: number };
   rodape_legal?: string;
 };
 
@@ -94,6 +107,7 @@ const TIPOS: { id: TipoDoc; nome: string; descricao: string }[] = [
   { id: "declaracao", nome: "Declaração de comparecimento", descricao: "Confirma presença no atendimento, sem informação clínica." },
   { id: "atestado", nome: "Atestado", descricao: "Afastamento ou aptidão funcional por um período." },
   { id: "recibo", nome: "Recibo", descricao: "Comprovante de pagamento para prestação de contas e Imposto de Renda, com as sessões puxadas da agenda." },
+  { id: "orcamento", nome: "Orçamento e proposta de tratamento", descricao: "Plano terapêutico, sessões, valores, desconto, parcelamento e validade, com espaço para o aceite do paciente." },
   { id: "relatorio", nome: "Relatório fisioterapêutico", descricao: "Resumo do acompanhamento, montado a partir do prontuário." },
   { id: "encaminhamento", nome: "Encaminhamento", descricao: "Para médico ou outro profissional, com resumo clínico." },
   { id: "solicitacao", nome: "Solicitação de exames", descricao: "Exames de imagem e laboratoriais, com justificativa clínica e hipótese diagnóstica." },
@@ -117,7 +131,8 @@ const RECURSO_DO_TIPO: Partial<Record<TipoDoc, Recurso>> = {
 
 // partes montadas a partir dos campos da solicitação, da prescrição e do recibo (não guardar como edição manual)
 const IDS_SOLICITACAO = ["exames_imagem", "exames_lab", "hipotese"];
-const ehDosCampos = (id: string) => IDS_SOLICITACAO.includes(id) || IDS_RECIBO.includes(id) || id.startsWith("uso-");
+const ehDosCampos = (id: string) =>
+  IDS_SOLICITACAO.includes(id) || IDS_RECIBO.includes(id) || IDS_ORCAMENTO.includes(id) || id.startsWith("uso-");
 
 type ApptRecibo = {
   id: string;
@@ -157,6 +172,9 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
   const [emitindo, setEmitindo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [catalogoMed, setCatalogoMed] = useState<ItemCatalogo[]>([]);
+
+  // orçamento: serviços cadastrados para sugerir nome e valor
+  const [servicosClinica, setServicosClinica] = useState<{ name: string; price_cents: number }[]>([]);
 
   // recibo
   const [puxando, setPuxando] = useState(false);
@@ -235,6 +253,21 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo]);
 
+  // serviços da clínica, carregados só quando o orçamento é aberto
+  useEffect(() => {
+    if (tipo !== "orcamento" || servicosClinica.length) return;
+    (async () => {
+      const { data } = await supabase
+        .from("services")
+        .select("name, price_cents")
+        .eq("clinic_id", clinicId)
+        .eq("active", true)
+        .order("name");
+      setServicosClinica((data as { name: string; price_cents: number }[]) ?? []);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipo]);
+
   // partes geradas automaticamente, com as edições do profissional por cima
   const geradas = useMemo(
     () => (paciente && prontuario ? gerarSecoes(tipo, paciente, prontuario, campos, pericia) : []),
@@ -300,6 +333,10 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
         exames: d.body.solicitacao.exames ?? [],
         hipotese: d.body.solicitacao.hipotese ?? "",
       });
+    }
+    if (d.body?.orcamento) {
+      for (const id of IDS_ORCAMENTO) delete ed[id];
+      setCampos({ ...CAMPOS_INICIAIS, orcamento: { ...ORCAMENTO_INICIAL, ...d.body.orcamento } });
     }
     if (d.body?.recibo) {
       // os itens, o pagador e o pagamento voltam para os campos e o texto é remontado
@@ -388,6 +425,65 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
     limparUsos();
   }
 
+  // ---------- orçamento ----------
+  function limparOrcamento() {
+    setEditadas((e) => {
+      const n = { ...e };
+      for (const k of IDS_ORCAMENTO) delete n[k];
+      return n;
+    });
+  }
+
+  function mudarOrcamento(mudanca: Partial<DadosOrcamento>) {
+    setCampos((c) => ({ ...c, orcamento: { ...c.orcamento, ...mudanca } }));
+    limparOrcamento();
+  }
+
+  function mudarItemOrc(id: string, mudanca: Partial<ItemOrcamento>) {
+    setCampos((c) => ({
+      ...c,
+      orcamento: { ...c.orcamento, itens: c.orcamento.itens.map((i) => (i.id === id ? { ...i, ...mudanca } : i)) },
+    }));
+    limparOrcamento();
+  }
+
+  // ao escolher um serviço cadastrado, o valor vem junto (se ainda estiver vazio)
+  function escolherServicoOrc(it: ItemOrcamento, nome: string) {
+    const sv = servicosClinica.find((x) => x.name === nome);
+    mudarItemOrc(it.id, sv && !it.valor.trim() && sv.price_cents > 0
+      ? { descricao: nome, valor: centavosParaCampo(sv.price_cents) }
+      : { descricao: nome });
+  }
+
+  function adicionarItemOrc() {
+    setCampos((c) => ({ ...c, orcamento: { ...c.orcamento, itens: [...c.orcamento.itens, novoItemOrcamento()] } }));
+    limparOrcamento();
+  }
+
+  function removerItemOrc(id: string) {
+    setCampos((c) => ({ ...c, orcamento: { ...c.orcamento, itens: c.orcamento.itens.filter((i) => i.id !== id) } }));
+    limparOrcamento();
+  }
+
+  function aplicarModelo(id: string) {
+    const m = MODELOS_ORCAMENTO.find((x) => x.id === id);
+    if (!m) return;
+    if (campos.orcamento.itens.some((i) => i.descricao.trim()) &&
+        !window.confirm("Substituir os itens atuais pelos do modelo?")) return;
+    const itens = m.itens.map(([d, q, v]) => {
+      const sv = servicosClinica.find((x) => x.name.toLowerCase() === d.toLowerCase());
+      return novoItemOrcamento(d, q, v || (sv?.price_cents ? centavosParaCampo(sv.price_cents) : ""));
+    });
+    mudarOrcamento({ itens, frequencia: m.frequencia, duracao: m.duracao });
+  }
+
+  function alternarForma(f: string) {
+    const formas = campos.orcamento.formas.includes(f)
+      ? campos.orcamento.formas.filter((x) => x !== f)
+      : [...campos.orcamento.formas, f];
+    mudarOrcamento({ formas });
+  }
+
   // ---------- recibo ----------
   function limparRecibo() {
     setEditadas((e) => {
@@ -466,7 +562,12 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
   const ehPericia = tipo === "parecer" || tipo === "laudo";
   const ehPrescricao = tipo === "prescricao";
   const ehRecibo = tipo === "recibo";
-  const mostraClinico = tipo !== "declaracao" && !ehPrescricao && !ehRecibo;
+  const ehOrcamento = tipo === "orcamento";
+  const mostraClinico = tipo !== "declaracao" && !ehPrescricao && !ehRecibo && !ehOrcamento;
+  const itensOrcValidos = campos.orcamento.itens.filter((i) => i.descricao.trim());
+  const orcSub = subtotalOrcamento(itensOrcValidos);
+  const orcDesc = descontoOrcamento({ ...campos.orcamento, itens: itensOrcValidos });
+  const orcTotal = totalOrcamento({ ...campos.orcamento, itens: itensOrcValidos });
   const totalAtual = totalRecibo(campos.recibo.itens.filter((i) => i.descricao.trim()));
 
   async function cadastrarPaciente() {
@@ -525,6 +626,12 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
         return setErro("Informe o nome de quem fez o pagamento.");
       }
     }
+    if (ehOrcamento) {
+      if (!itensOrcValidos.length) return setErro("Adicione pelo menos um item ao orçamento.");
+      if (itensOrcValidos.some((i) => !subtotalItem(i))) {
+        return setErro("Há itens do orçamento sem quantidade ou valor. Preencha ou remova o item.");
+      }
+    }
     const finais = secoes.filter((s) => s.texto.trim());
     if (!finais.length) return setErro("O documento está sem texto.");
     if (cid.trim() && !cidAutorizado) {
@@ -545,6 +652,12 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
         ? { solicitacao: { exames: examesValidos, hipotese: campos.hipotese.trim() } }
         : {}),
       ...(ehPrescricao ? { prescricao: { itens: itensValidos }, rodape_legal: BASE_LEGAL_PRESCRICAO } : {}),
+      ...(ehOrcamento
+        ? {
+            orcamento: { ...campos.orcamento, itens: itensOrcValidos, total_cents: orcTotal },
+            rodape_legal: BASE_LEGAL_ORCAMENTO,
+          }
+        : {}),
       ...(ehRecibo
         ? {
             recibo: {
@@ -577,7 +690,7 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
           <div>
             <h1 className="h-title text-2xl">Documentos</h1>
             <p className="mt-1 text-sm text-ink/70">
-              Declarações, atestados, recibos, relatórios, encaminhamentos, solicitações de exames e prescrições.
+              Declarações, atestados, recibos, orçamentos, relatórios, encaminhamentos, solicitações de exames e prescrições.
             </p>
           </div>
           <button className="btn-primary" onClick={novoDocumento}>Novo documento</button>
@@ -616,6 +729,9 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                       {d.title}
                       {d.doc_type === "recibo" && d.body?.recibo?.total_cents
                         ? <span className="text-ink/60"> · {formatarReais(d.body.recibo.total_cents)}</span>
+                        : null}
+                      {d.doc_type === "orcamento" && d.body?.orcamento?.total_cents
+                        ? <span className="text-ink/60"> · {formatarReais(d.body.orcamento.total_cents)}</span>
                         : null}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-right">
@@ -778,6 +894,18 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                     if (t.id === "prescricao" && campos.itens.length === 0) {
                       setCampos((c) => ({ ...c, itens: [novoItem("medicamento")] }));
                     }
+                    if (t.id === "orcamento" && campos.orcamento.itens.length === 0) {
+                      // data da primeira consulta como data da avaliação
+                      const primeira = prontuario?.atendimentos[prontuario.atendimentos.length - 1];
+                      setCampos((c) => ({
+                        ...c,
+                        orcamento: {
+                          ...c.orcamento,
+                          avaliacaoData: c.orcamento.avaliacaoData || (primeira ? diaISO(primeira.starts_at) : ""),
+                          itens: [novoItemOrcamento()],
+                        },
+                      }));
+                    }
                   }}
                   className={`rounded-lg border p-3 text-left text-sm disabled:opacity-60 ${
                     tipo === t.id ? "border-ink bg-paper" : "border-ink/15"
@@ -829,6 +957,143 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
                       <option value="laborais e esportivas">laborais e esportivas</option>
                     </select>
                   </div>
+                </>
+              )}
+              {ehOrcamento && (
+                <>
+                  <div className="space-y-2 md:col-span-2">
+                    <p className="label">Começar por um modelo (opcional)</p>
+                    <div className="flex flex-wrap gap-2">
+                      {MODELOS_ORCAMENTO.map((m) => (
+                        <button key={m.id} type="button" className="btn-ghost text-sm" onClick={() => aplicarModelo(m.id)}>
+                          {m.nome}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-ink/60">
+                      Os modelos só preenchem os itens; ajuste nomes, quantidades e valores como quiser. Serviços cadastrados trazem o valor sozinhos.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 md:col-span-2">
+                    <p className="label">Itens do tratamento</p>
+                    <datalist id="lista-servicos-orc">
+                      {servicosClinica.map((sv) => <option key={sv.name} value={sv.name} />)}
+                    </datalist>
+                    {campos.orcamento.itens.map((it, i) => (
+                      <div key={it.id} className="grid gap-3 rounded-lg border border-ink/10 p-3 sm:grid-cols-[1fr_6rem_8rem_auto]">
+                        <div>
+                          <label className="label" htmlFor={`od-${it.id}`}>Item {i + 1}</label>
+                          <input id={`od-${it.id}`} className="field w-full" list="lista-servicos-orc" value={it.descricao}
+                            placeholder="Ex.: Sessão de fisioterapia"
+                            onChange={(e) => escolherServicoOrc(it, e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="label" htmlFor={`oq-${it.id}`}>Qtd.</label>
+                          <input id={`oq-${it.id}`} inputMode="numeric" className="field w-full" value={it.quantidade}
+                            onChange={(e) => mudarItemOrc(it.id, { quantidade: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="label" htmlFor={`ov-${it.id}`}>Valor unit. (R$)</label>
+                          <input id={`ov-${it.id}`} inputMode="decimal" className="field w-full" value={it.valor} placeholder="0,00"
+                            onChange={(e) => mudarItemOrc(it.id, { valor: e.target.value })} />
+                        </div>
+                        <div className="flex flex-col items-end justify-end gap-1">
+                          <span className="text-sm font-semibold">{formatarReais(subtotalItem(it))}</span>
+                          <button className="text-sm text-danger" onClick={() => removerItemOrc(it.id)}>Remover</button>
+                        </div>
+                      </div>
+                    ))}
+                    <button className="btn-ghost text-sm" onClick={adicionarItemOrc}>Adicionar item</button>
+                  </div>
+
+                  <div>
+                    <label className="label" htmlFor="orc-freq">Frequência sugerida</label>
+                    <input id="orc-freq" className="field w-full" value={campos.orcamento.frequencia}
+                      placeholder="Ex.: 2 vezes por semana" onChange={(e) => mudarOrcamento({ frequencia: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="orc-dur">Duração estimada</label>
+                    <input id="orc-dur" className="field w-full" value={campos.orcamento.duracao}
+                      placeholder="Ex.: 8 semanas" onChange={(e) => mudarOrcamento({ duracao: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="orc-aval">Data da avaliação (opcional)</label>
+                    <input id="orc-aval" type="date" className="field w-full" value={campos.orcamento.avaliacaoData}
+                      onChange={(e) => mudarOrcamento({ avaliacaoData: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="orc-ini">Previsão de início (opcional)</label>
+                    <input id="orc-ini" type="date" className="field w-full" value={campos.orcamento.inicio}
+                      onChange={(e) => mudarOrcamento({ inicio: e.target.value })} />
+                  </div>
+
+                  <div className="space-y-2 rounded-lg bg-paper p-3 md:col-span-2">
+                    <p className="label">Desconto</p>
+                    <div className="grid gap-3 sm:grid-cols-[12rem_8rem_1fr]">
+                      <select className="field w-full" value={campos.orcamento.descontoTipo}
+                        onChange={(e) => mudarOrcamento({ descontoTipo: e.target.value as DescontoTipo })}>
+                        <option value="nenhum">Sem desconto</option>
+                        <option value="percentual">Percentual (%)</option>
+                        <option value="valor">Valor (R$)</option>
+                      </select>
+                      {campos.orcamento.descontoTipo !== "nenhum" && (
+                        <>
+                          <input inputMode="decimal" className="field w-full" value={campos.orcamento.desconto}
+                            placeholder={campos.orcamento.descontoTipo === "percentual" ? "10" : "0,00"}
+                            onChange={(e) => mudarOrcamento({ desconto: e.target.value })} />
+                          <input className="field w-full" value={campos.orcamento.descontoCondicao}
+                            placeholder="Condição (ex.: pagamento à vista no Pix)"
+                            onChange={(e) => mudarOrcamento({ descontoCondicao: e.target.value })} />
+                        </>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm">
+                      {orcDesc > 0 && <span className="text-ink/70">Subtotal: {formatarReais(orcSub)}</span>}
+                      {orcDesc > 0 && <span className="text-ink/70">Desconto: {formatarReais(orcDesc)}</span>}
+                      <span className="text-base font-extrabold">Total: {formatarReais(orcTotal)}</span>
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <p className="label">Formas de pagamento aceitas</p>
+                    <div className="flex flex-wrap gap-2">
+                      {FORMAS_PAGAMENTO.map((f) => {
+                        const on = campos.orcamento.formas.includes(f);
+                        return (
+                          <button key={f} type="button" onClick={() => alternarForma(f)}
+                            className={`rounded-lg border px-3 py-1.5 text-sm ${on ? "border-ink bg-paper font-semibold" : "border-ink/15 text-ink/60"}`}>
+                            {on ? "✓ " : ""}{f}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="orc-parc">Parcelar no cartão em até</label>
+                    <select id="orc-parc" className="field w-full" value={campos.orcamento.parcelas}
+                      onChange={(e) => mudarOrcamento({ parcelas: e.target.value })}>
+                      {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((n) => (
+                        <option key={n} value={n}>{n === "1" ? "Sem parcelamento" : `${n} vezes`}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="orc-val">Validade do orçamento</label>
+                    <select id="orc-val" className="field w-full" value={campos.orcamento.validadeDias}
+                      onChange={(e) => mudarOrcamento({ validadeDias: e.target.value })}>
+                      {["7", "10", "15", "30"].map((d) => <option key={d} value={d}>{d} dias</option>)}
+                    </select>
+                  </div>
+                  <label className="flex items-start gap-2 text-sm md:col-span-2">
+                    <input type="checkbox" className="mt-1" checked={campos.orcamento.aceite}
+                      onChange={(e) => mudarOrcamento({ aceite: e.target.checked })} />
+                    Incluir espaço para o aceite e a assinatura do paciente
+                  </label>
+                  <p className="text-xs text-ink/60 md:col-span-2">
+                    O documento já sai com &quot;Considerações importantes&quot; explicando que a fisioterapia é obrigação de meio e que
+                    os resultados não podem ser garantidos, e com a base legal no rodapé. Você pode editar qualquer parte na lista ao lado.
+                  </p>
                 </>
               )}
               {ehRecibo && (
@@ -1300,6 +1565,9 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
               {ehRecibo && totalAtual > 0 && (
                 <p className="text-center text-lg font-extrabold">Valor: {formatarReais(totalAtual)}</p>
               )}
+              {ehOrcamento && orcTotal > 0 && (
+                <p className="text-center text-lg font-extrabold">Investimento total: {formatarReais(orcTotal)}</p>
+              )}
               {secoes.filter((s) => s.texto.trim()).map((s) => (
                 <div key={s.id}>
                   {s.titulo && <p className="font-semibold">{s.titulo}</p>}
@@ -1322,6 +1590,9 @@ export function Documentos({ recursos, clinicId, pacientes: pacientesIniciais, d
               <p className="text-right">{[cidadeClinica, isoParaBR(hojeISO())].filter(Boolean).join(", ")}.</p>
               {ehPrescricao && (
                 <p className="border-t border-ink/10 pt-2 text-xs text-ink/60">{BASE_LEGAL_PRESCRICAO}</p>
+              )}
+              {ehOrcamento && (
+                <p className="border-t border-ink/10 pt-2 text-xs text-ink/60">{BASE_LEGAL_ORCAMENTO}</p>
               )}
               <p className="text-center text-xs text-ink/60">Cabeçalho, assinatura e carimbo entram automaticamente a partir de Meus dados.</p>
             </div>

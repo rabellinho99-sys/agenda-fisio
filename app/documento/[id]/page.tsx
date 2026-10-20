@@ -26,6 +26,7 @@ type Corpo = {
   cid_autorizado?: boolean;
   rodape_legal?: string;
   recibo?: { total_cents?: number };
+  orcamento?: { total_cents?: number };
 };
 
 const TZ = "America/Sao_Paulo";
@@ -85,6 +86,7 @@ export default async function DocumentoPage({ params }: { params: Promise<{ id: 
   const dataHora = emitido.toLocaleString("pt-BR", { timeZone: TZ });
 
   const totalRecibo = corpo.recibo?.total_cents ?? 0;
+  const totalOrcamento = corpo.orcamento?.total_cents ?? 0;
 
   return (
     <main className="min-h-screen bg-paper py-8 print:bg-white print:py-0">
@@ -120,6 +122,11 @@ export default async function DocumentoPage({ params }: { params: Promise<{ id: 
         {totalRecibo > 0 && (
           <p className="mx-auto mt-4 rounded border border-black/40 px-6 py-2 text-center text-[14pt] font-bold">
             Valor: {reais(totalRecibo)}
+          </p>
+        )}
+        {totalOrcamento > 0 && (
+          <p className="mx-auto mt-4 rounded border border-black/40 px-6 py-2 text-center text-[14pt] font-bold">
+            Investimento total: {reais(totalOrcamento)}
           </p>
         )}
 

@@ -8,6 +8,7 @@ export type TipoDoc =
   | "declaracao"
   | "atestado"
   | "recibo"
+  | "orcamento"
   | "relatorio"
   | "encaminhamento"
   | "solicitacao"
@@ -288,6 +289,112 @@ export function valorPorExtenso(c: number): string {
   return partes.length ? partes.join(" e ") : "zero real";
 }
 
+// ---------- Orçamento e proposta de tratamento ----------
+
+export type ItemOrcamento = {
+  id: string;
+  descricao: string;
+  quantidade: string; // "10"
+  valor: string; // valor unitário como digitado, ex.: "120,00"
+};
+
+export type DescontoTipo = "nenhum" | "percentual" | "valor";
+
+export type DadosOrcamento = {
+  avaliacaoData: string; // AAAA-MM-DD (opcional)
+  itens: ItemOrcamento[];
+  frequencia: string; // ex.: "2 vezes por semana"
+  duracao: string; // ex.: "8 semanas"
+  inicio: string; // previsão de início, AAAA-MM-DD (opcional)
+  descontoTipo: DescontoTipo;
+  desconto: string; // "10" (%) ou "150,00" (R$)
+  descontoCondicao: string; // ex.: "pagamento à vista no Pix"
+  formas: string[];
+  parcelas: string; // "1" = sem parcelamento
+  validadeDias: string;
+  aceite: boolean;
+};
+
+export const ORCAMENTO_INICIAL: DadosOrcamento = {
+  avaliacaoData: "",
+  itens: [],
+  frequencia: "",
+  duracao: "",
+  inicio: "",
+  descontoTipo: "nenhum",
+  desconto: "",
+  descontoCondicao: "",
+  formas: ["Pix", "Cartão de crédito"],
+  parcelas: "1",
+  validadeDias: "10",
+  aceite: true,
+};
+
+// partes do orçamento montadas a partir dos campos
+export const IDS_ORCAMENTO = ["orc_plano", "orc_investimento", "orc_pagamento", "orc_validade", "orc_aceite"];
+
+// Rodapé com a base legal (CDC e Código de Ética)
+export const BASE_LEGAL_ORCAMENTO =
+  "Orçamento prévio elaborado conforme o art. 40 do Código de Defesa do Consumidor (Lei nº 8.078/1990), com discriminação dos " +
+  "serviços, valores, condições de pagamento e prazo de validade. A fisioterapia é obrigação de meio, e não de resultado " +
+  "(art. 14, § 4º, do CDC), observado o Código de Ética e Deontologia da Fisioterapia (Resolução COFFITO nº 424/2013).";
+
+export const TEXTO_MEIO_NAO_FIM =
+  "O tratamento fisioterapêutico é uma obrigação de meio, e não de resultado. O(A) profissional se compromete a empregar " +
+  "as técnicas adequadas, com zelo, ética e base científica, mas a resposta ao tratamento varia de pessoa para pessoa e " +
+  "depende de fatores individuais, como a condição clínica, a adesão às orientações, a frequência às sessões e os cuidados " +
+  "em casa. Por isso, não é possível garantir resultados específicos nem prazos de recuperação.\n" +
+  "O plano poderá ser ajustado conforme a evolução, com reavaliações periódicas. Qualquer mudança de procedimentos, " +
+  "número de sessões ou valores será explicada e combinada previamente com o(a) paciente.";
+
+// Modelos rápidos: do caso mais simples ao mais complexo
+export const MODELOS_ORCAMENTO: { id: string; nome: string; itens: [string, string, string][]; frequencia: string; duracao: string }[] = [
+  { id: "avulsas", nome: "Sessões avulsas", itens: [["Avaliação fisioterapêutica", "1", ""], ["Sessão de fisioterapia", "10", ""]], frequencia: "2 vezes por semana", duracao: "5 semanas" },
+  { id: "pacote", nome: "Pacote de sessões", itens: [["Pacote de sessões de fisioterapia", "1", ""]], frequencia: "2 vezes por semana", duracao: "" },
+  {
+    id: "injetavel",
+    nome: "Procedimento + reabilitação",
+    itens: [
+      ["Avaliação fisioterapêutica", "1", ""],
+      ["Procedimento injetável (ex.: PRP), por aplicação", "3", ""],
+      ["Sessão de reabilitação", "8", ""],
+    ],
+    frequencia: "aplicações a cada 15 dias e reabilitação 2 vezes por semana",
+    duracao: "8 semanas",
+  },
+];
+
+export function novoItemOrcamento(descricao = "", quantidade = "1", valor = ""): ItemOrcamento {
+  return { id: `oc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, descricao, quantidade, valor };
+}
+
+export function qtd(q: string): number {
+  const n = Number((q || "").replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function subtotalItem(i: ItemOrcamento): number {
+  return Math.round(qtd(i.quantidade) * centavos(i.valor));
+}
+
+export function subtotalOrcamento(itens: ItemOrcamento[]): number {
+  return itens.reduce((s, i) => s + subtotalItem(i), 0);
+}
+
+export function descontoOrcamento(o: DadosOrcamento): number {
+  const sub = subtotalOrcamento(o.itens);
+  if (o.descontoTipo === "percentual") {
+    const pct = Math.min(100, Math.max(0, Number((o.desconto || "").replace(",", ".")) || 0));
+    return Math.round((sub * pct) / 100);
+  }
+  if (o.descontoTipo === "valor") return Math.min(sub, centavos(o.desconto));
+  return 0;
+}
+
+export function totalOrcamento(o: DadosOrcamento): number {
+  return Math.max(0, subtotalOrcamento(o.itens) - descontoOrcamento(o));
+}
+
 function rotuloDocumento(numero: string) {
   return numero.replace(/\D/g, "").length === 14 ? "CNPJ" : "CPF";
 }
@@ -305,6 +412,7 @@ export type Campos = {
   hipotese: string;
   itens: ItemPrescricao[];
   recibo: DadosRecibo;
+  orcamento: DadosOrcamento;
 };
 
 export type BlocoId = "anamnese" | "avaliacao" | "testes" | "exames" | "condutas" | "evolucao" | "termos";
@@ -426,6 +534,7 @@ export const CAMPOS_INICIAIS: Campos = {
   hipotese: "",
   itens: [],
   recibo: RECIBO_INICIAL,
+  orcamento: ORCAMENTO_INICIAL,
 };
 
 const TZ = "America/Sao_Paulo";
@@ -888,6 +997,106 @@ function gerarRecibo(p: Paciente, c: Campos): Secao[] {
   ];
 }
 
+function somarDias(iso: string, dias: number) {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + dias);
+  return d.toLocaleDateString("en-CA");
+}
+
+function gerarOrcamento(p: Paciente, pr: Prontuario, c: Campos): Secao[] {
+  const o = c.orcamento;
+  const validos = o.itens.filter((i) => i.descricao.trim());
+  const sub = subtotalOrcamento(validos);
+  const desc = descontoOrcamento({ ...o, itens: validos });
+  const total = Math.max(0, sub - desc);
+
+  const avaliacao = o.avaliacaoData ? `, elaborados a partir da avaliação realizada em ${isoParaBR(o.avaliacaoData)}` : "";
+  const principal =
+    `Apresento ao(à) paciente ${identificacaoCurta(p)}${p.cpf ? "," : ""} a proposta de tratamento fisioterapêutico e o respectivo orçamento${avaliacao}.`;
+
+  // queixa e diagnóstico puxados da anamnese, quando houver
+  const queixa = textoAnamnese(pr.anamnese, ["queixa", "inicio", "local"]);
+
+  // plano terapêutico a partir dos itens
+  const linhasPlano = validos.map((i) => {
+    const n = qtd(i.quantidade);
+    return `${i.descricao.trim()}${n > 1 ? ` (quantidade: ${String(n).replace(".", ",")})` : ""}.`;
+  });
+  const plano = [
+    ...linhasPlano,
+    o.frequencia.trim() && `Frequência sugerida: ${o.frequencia.trim()}.`,
+    o.duracao.trim() && `Duração estimada: ${o.duracao.trim()}.`,
+    o.inicio && `Previsão de início: ${isoParaBR(o.inicio)}.`,
+  ].filter(Boolean).join("\n");
+
+  // investimento discriminado
+  const linhasValor = validos.map((i, n) => {
+    const q = qtd(i.quantidade) || 1;
+    const unit = centavos(i.valor);
+    const sb = subtotalItem(i);
+    const qTxt = String(q).replace(".", ",");
+    return unit
+      ? `${n + 1}. ${i.descricao.trim()}: ${qTxt} x ${formatarReais(unit)} = ${formatarReais(sb)}.`
+      : `${n + 1}. ${i.descricao.trim()}: ${qTxt} x [valor].`;
+  });
+  const resumo: string[] = [];
+  if (desc > 0) {
+    const rotulo = o.descontoTipo === "percentual" ? `Desconto de ${(o.desconto || "").replace(".", ",")}%` : "Desconto";
+    resumo.push(`Subtotal: ${formatarReais(sub)}.`);
+    resumo.push(`${rotulo}${o.descontoCondicao.trim() ? ` (${o.descontoCondicao.trim()})` : ""}: ${formatarReais(desc)}.`);
+  }
+  resumo.push(`Valor total: ${total ? `${formatarReais(total)} (${valorPorExtenso(total)})` : "[valor]"}.`);
+  const investimento = [...linhasValor, "", ...resumo].join("\n").replace(/^\n+/, "");
+
+  // condições de pagamento
+  const parcelas = Math.max(1, Math.floor(Number(o.parcelas) || 1));
+  const formas = o.formas.length ? o.formas.join(", ") : "";
+  const pagamento = [
+    formas && `Formas de pagamento aceitas: ${formas}.`,
+    parcelas > 1 && total
+      ? `Parcelamento em até ${parcelas} vezes de ${formatarReais(Math.ceil(total / parcelas))} no cartão de crédito.`
+      : "",
+  ].filter(Boolean).join("\n");
+
+  const dias = Math.max(1, Math.floor(Number(o.validadeDias) || 10));
+  const validade =
+    `Este orçamento é válido por ${dias} ${dias === 1 ? "dia" : "dias"}, até ${isoParaBR(somarDias(hojeISO(), dias))}. ` +
+    "Após esse prazo, valores e disponibilidade de horários poderão ser revistos.";
+
+  const aceite =
+    "Declaro que recebi as explicações sobre o tratamento proposto, tive minhas dúvidas esclarecidas, li e concordo com as condições deste orçamento.\n\n" +
+    "Paciente ou responsável: _________________________________________\n" +
+    "Data: ____/____/________";
+
+  return [
+    { id: "orc_principal", titulo: "", texto: principal },
+    {
+      id: "orc_queixa",
+      titulo: "Queixa principal e avaliação",
+      texto: queixa,
+      dica: "Ex.: dor no joelho direito há 6 meses, com limitação para subir escadas. Avaliação indica tendinopatia patelar.",
+    },
+    {
+      id: "orc_objetivos",
+      titulo: "Objetivos do tratamento",
+      texto: "",
+      dica: "Ex.: reduzir a dor, recuperar a amplitude de movimento e a força, e retornar às atividades diárias e esportivas.",
+    },
+    { id: "orc_plano", titulo: "Plano terapêutico proposto", texto: plano },
+    { id: "orc_investimento", titulo: "Investimento", texto: investimento },
+    { id: "orc_pagamento", titulo: "Condições de pagamento", texto: pagamento },
+    { id: "orc_validade", titulo: "Validade", texto: validade },
+    {
+      id: "observacoes",
+      titulo: "Observações",
+      texto: "",
+      dica: "Opcional. Ex.: procedimentos injetáveis exigem termo de consentimento específico; materiais inclusos no valor.",
+    },
+    { id: "orc_meio", titulo: "Considerações importantes", texto: TEXTO_MEIO_NAO_FIM },
+    ...(o.aceite ? [{ id: "orc_aceite", titulo: "Aceite do(a) paciente", texto: aceite }] : []),
+  ];
+}
+
 export function gerarSecoes(
   tipo: TipoDoc,
   p: Paciente,
@@ -899,6 +1108,7 @@ export function gerarSecoes(
   if (tipo === "solicitacao") return gerarSolicitacao(p, pr, c);
   if (tipo === "prescricao") return gerarPrescricao(p, c);
   if (tipo === "recibo") return gerarRecibo(p, c);
+  if (tipo === "orcamento") return gerarOrcamento(p, pr, c);
 
   const at = pr.atendimentos.find((a) => a.id === c.atendimentoId) ?? pr.atendimentos[0];
   const dataAt = at ? dataBR(at.starts_at) : isoParaBR(hojeISO());
