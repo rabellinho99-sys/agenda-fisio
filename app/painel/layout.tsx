@@ -7,6 +7,7 @@ import { Gate } from "@/components/Gate";
 import { BloqueioPlano } from "@/components/BloqueioPlano";
 import SinoPendentes from "@/components/SinoPendentes";
 import { AvisoWhatsApp } from "@/components/AvisoWhatsApp";
+import { AvisoSistema } from "@/components/AvisoSistema";
 import { NOME_PLANO, temRecurso, type Recurso, type Recursos } from "@/lib/planos";
 
 const WHATSAPP_SUPORTE =
@@ -118,6 +119,8 @@ export default async function PainelLayout({ children }: { children: React.React
           <SairButton />
         </div>
       </header>
+
+      <AvisoSistema />
 
       {semWhatsApp && <AvisoWhatsApp clinicId={member.clinic_id} />}
 
