@@ -11,7 +11,7 @@ type Prof = { id: string; display_name: string };
 type Svc = { id: string; name: string; duration_minutes: number; buffer_after_minutes: number; price_cents: number; max_participants: number };
 type Appt = {
   id: string; patient_id: string; patient_package_id: string | null; starts_at: string; ends_at: string; status: string; price_cents: number;
-  color: string | null; internal_notes: string | null; recurrence_id: string | null;
+  color: string | null; internal_notes: string | null; recurrence_id: string | null; patient_confirmed_at: string | null;
   patients: { full_name: string; phone: string } | null;
   services: { name: string } | null;
   professionals: { display_name: string } | null;
@@ -61,7 +61,7 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
     const fim = new Date(dia); fim.setHours(23, 59, 59, 999);
     const { data } = await supabase
       .from("appointments")
-      .select("id, patient_id, patient_package_id, starts_at, ends_at, status, price_cents, color, internal_notes, recurrence_id, patients(full_name, phone), services(name), professionals(display_name)")
+      .select("id, patient_id, patient_package_id, starts_at, ends_at, status, price_cents, color, internal_notes, recurrence_id, patient_confirmed_at, patients(full_name, phone), services(name), professionals(display_name)")
       .eq("clinic_id", clinicId)
       .gte("starts_at", inicio.toISOString())
       .lte("starts_at", fim.toISOString())
@@ -364,6 +364,9 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
                   <div className="flex gap-1">
                     {conflito && <span className="rounded-md bg-amber px-2 py-1 text-xs font-bold text-ink">Sobreposto</span>}
                     <span className={`rounded-md px-2 py-1 text-xs font-bold ${st.cls}`}>{st.label}</span>
+                    {a.patient_confirmed_at && ativo && (
+                      <span className="rounded-md bg-moss px-2 py-1 text-xs font-bold text-white" title="O paciente confirmou presença">✓ Paciente confirmou</span>
+                    )}
                   </div>
                   {ativo && (
                     <div className="flex flex-wrap gap-1">
@@ -393,6 +396,7 @@ export function Agenda({ clinicId, clinicName = "", tz, professionals, services 
                   {ativo && (
                     <LembreteWhatsApp
                       compacto
+                      appointmentId={a.id}
                       telefone={a.patients?.phone ?? null}
                       paciente={a.patients?.full_name ?? ""}
                       clinica={clinicName || "clínica"}

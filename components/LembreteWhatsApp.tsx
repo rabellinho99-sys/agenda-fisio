@@ -1,8 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+
+const SITE = "https://agendafisiopro.com.br";
 
 type Props = {
+  appointmentId?: string; // quando informado, a mensagem leva "Sessão X de Y" (pacote) e o link de confirmação
   telefone: string | null;
   paciente: string;
   clinica: string;
@@ -14,6 +18,7 @@ type Props = {
 };
 
 type Modelo = "lembrete" | "confirmacao" | "livre";
+type Extra = { link?: string; sessao?: string };
 
 function linkWhatsApp(telefone: string, texto: string) {
   const d = telefone.replace(/\D/g, "");
@@ -21,7 +26,7 @@ function linkWhatsApp(telefone: string, texto: string) {
   return `https://wa.me/${numero}?text=${encodeURIComponent(texto)}`;
 }
 
-function montarTexto(m: Modelo, p: Props) {
+function montarTexto(m: Modelo, p: Props, x: Extra = {}) {
   const tz = p.timezone ?? "America/Sao_Paulo";
   const data = new Date(p.inicio);
   const dia = data.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", timeZone: tz });
@@ -29,24 +34,41 @@ function montarTexto(m: Modelo, p: Props) {
   const nome = p.paciente.trim().split(" ")[0];
   const servico = p.servico ? ` de ${p.servico}` : "";
   const com = p.profissional ? `, com ${p.profissional}` : "";
+  const sessao = x.sessao ? ` (${x.sessao})` : "";
+  const link = x.link ? `\n\nToque no link para confirmar ou cancelar:\n${x.link}` : "";
 
   if (m === "confirmacao") {
-    return `Olá, ${nome}! Seu atendimento${servico} na ${p.clinica} está marcado para ${dia}, às ${hora}${com}. Qualquer imprevisto, é só me avisar por aqui.`;
+    return `Olá, ${nome}! Seu atendimento${servico}${sessao} na ${p.clinica} está marcado para ${dia}, às ${hora}${com}.${link || "\n\nQualquer imprevisto, é só me avisar por aqui."}`;
   }
   if (m === "livre") return `Olá, ${nome}! `;
-  return `Olá, ${nome}! Passando para lembrar do seu atendimento${servico} na ${p.clinica}, ${dia}, às ${hora}${com}. Posso confirmar sua presença?`;
+  return `Olá, ${nome}! Passando para confirmar nosso atendimento${servico}${sessao} na ${p.clinica}, ${dia}, às ${hora}${com}.${link || " Posso confirmar sua presença?"}`;
 }
 
 export function LembreteWhatsApp(props: Props) {
   const [aberto, setAberto] = useState(false);
+  const [extra, setExtra] = useState<Extra | null>(null);
   const tel = (props.telefone ?? "").replace(/\D/g, "");
 
   if (tel.length < 10) {
     return <span className="text-xs text-ink/50">Paciente sem celular cadastrado</span>;
   }
 
+  // Busca o link de confirmação e o número da sessão ao abrir o menu
+  const alternar = async () => {
+    const abrindo = !aberto;
+    setAberto(abrindo);
+    if (!abrindo || extra || !props.appointmentId) return;
+    const { data } = await createClient().rpc("confirm_link_info", { p_appointment: props.appointmentId });
+    const r = data as { ok?: boolean; token?: string; session_num?: number | null; session_total?: number | null } | null;
+    if (!r?.ok) { setExtra({}); return; }
+    setExtra({
+      link: r.token ? `${SITE}/confirmar/${r.token}` : undefined,
+      sessao: r.session_num && r.session_total ? `sessão ${r.session_num} de ${r.session_total}` : undefined,
+    });
+  };
+
   const abrir = (m: Modelo) => {
-    window.open(linkWhatsApp(tel, montarTexto(m, props)), "_blank", "noopener,noreferrer");
+    window.open(linkWhatsApp(tel, montarTexto(m, props, extra ?? {})), "_blank", "noopener,noreferrer");
     setAberto(false);
   };
 
@@ -54,7 +76,7 @@ export function LembreteWhatsApp(props: Props) {
     <div className="relative inline-block">
       <button
         type="button"
-        onClick={() => setAberto(!aberto)}
+        onClick={alternar}
         className={`inline-flex items-center gap-1.5 rounded-lg bg-[#25D366] font-semibold text-white hover:opacity-90 ${
           props.compacto ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
         }`}
@@ -70,7 +92,9 @@ export function LembreteWhatsApp(props: Props) {
         <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-ink/10 bg-white p-1 text-sm shadow-lg">
           <button type="button" className="w-full rounded-md px-3 py-2 text-left hover:bg-paper" onClick={() => abrir("lembrete")}>
             <span className="font-semibold">Lembrete</span>
-            <span className="block text-xs text-ink/60">Lembra o horário e pede confirmação</span>
+            <span className="block text-xs text-ink/60">
+              {extra?.sessao ? `${extra.sessao[0].toUpperCase()}${extra.sessao.slice(1)}, ` : ""}pede confirmação{extra?.link ? " com link" : ""}
+            </span>
           </button>
           <button type="button" className="w-full rounded-md px-3 py-2 text-left hover:bg-paper" onClick={() => abrir("confirmacao")}>
             <span className="font-semibold">Confirmação do agendamento</span>
