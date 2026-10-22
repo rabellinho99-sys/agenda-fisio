@@ -513,8 +513,35 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
   const [salvando, setSalvando] = useState(false);
   const [repetir, setRepetir] = useState<"nao" | "semanal" | "quinzenal">("nao");
   const [ateData, setAteData] = useState(() => { const d = new Date(dia); d.setMonth(d.getMonth() + 3); return toISODate(d); });
+  const [diasSemana, setDiasSemana] = useState<number[]>(() => [dia.getDay()]);
+  const [terminar, setTerminar] = useState<"sessoes" | "data">("sessoes");
+  const [qtdSessoes, setQtdSessoes] = useState(10);
+  const [saldoInfo, setSaldoInfo] = useState<{ nome: string; saldo: number } | null>(null);
 
-  const datasSerie = calcularDatas(data, hora, repetir, ateData);
+  // ao trocar a data inicial, garante que o dia da semana dela esteja marcado
+  useEffect(() => {
+    const d = new Date(`${data}T12:00:00`).getDay();
+    if (!Number.isNaN(d)) setDiasSemana((atual) => (atual.includes(d) ? atual : [...atual, d].sort()));
+  }, [data]);
+
+  // mostra o saldo do pacote e já sugere o número de sessões
+  useEffect(() => {
+    let ativo = true;
+    setSaldoInfo(null);
+    if (!selecionado || !svc) return;
+    supabase.rpc("active_packages", { p_patient: selecionado.id, p_service: svc }).then(({ data: pk }) => {
+      if (!ativo) return;
+      const p0 = ((pk ?? []) as { package_name: string; saldo: number }[])[0];
+      if (p0 && p0.saldo > 0) { setSaldoInfo({ nome: p0.package_name, saldo: p0.saldo }); setQtdSessoes(p0.saldo); }
+    });
+    return () => { ativo = false; };
+  }, [selecionado, svc]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function alternarDia(d: number) {
+    setDiasSemana((atual) => atual.includes(d) ? (atual.length > 1 ? atual.filter((x) => x !== d) : atual) : [...atual, d].sort());
+  }
+
+  const datasSerie = calcularDatas(data, hora, repetir, { ateData, dias: diasSemana, terminar, qtd: qtdSessoes });
 
   // carrega a lista de pacientes uma vez; a busca é feita na tela, com a mesma regra das outras telas
   useEffect(() => {
@@ -632,7 +659,7 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
     }
 
     // ── Horário fixo: cria todas as sessões da série ──
-    if (datasSerie.length < 2) { setSalvando(false); return setErro("Escolha uma data final que gere pelo menos 2 sessões."); }
+    if (datasSerie.length < 2) { setSalvando(false); return setErro("A série precisa ter pelo menos 2 sessões. Ajuste os dias, a quantidade ou a data final."); }
 
     const ultimaFim = new Date(datasSerie[datasSerie.length - 1].getTime() + duracaoMs);
     const { data: blocos } = await supabase
@@ -785,13 +812,46 @@ function NovoAtendimento({ clinicId, dia, professionals, services, onClose, onSa
         </select>
       </div>
       {repetir !== "nao" && (
-        <div>
-          <label className="label">Repetir até</label>
-          <input type="date" className="field" value={ateData} min={data} onChange={(e) => setAteData(e.target.value)} />
-          <p className="mt-1 text-xs text-ink/60">
-            {datasSerie.length} {datasSerie.length === 1 ? "sessão" : "sessões"}, {repetir === "semanal" ? "toda" : "a cada 2 semanas na"}{" "}
-            {new Date(`${data}T12:00:00`).toLocaleDateString("pt-BR", { weekday: "long" })} às {hora}
-            {datasSerie.length >= 52 ? " (máximo de 52 por vez)" : ""}.
+        <div className="space-y-3 rounded-lg border border-ink/10 p-3">
+          <div>
+            <label className="label">Dias da semana</label>
+            <div className="flex flex-wrap gap-1">
+              {[1, 2, 3, 4, 5, 6, 0].map((d) => (
+                <button key={d} type="button" onClick={() => alternarDia(d)}
+                  className={`rounded-lg border px-2.5 py-1.5 text-sm font-semibold ${diasSemana.includes(d) ? "border-moss bg-moss text-white" : "border-ink/15 bg-white text-ink/70"}`}>
+                  {NOMES_DIA[d]}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-ink/50">Marque todos os dias em que a paciente é atendida, no mesmo horário.</p>
+          </div>
+
+          <div>
+            <label className="label">Terminar</label>
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input type="radio" name="terminar" checked={terminar === "sessoes"} onChange={() => setTerminar("sessoes")} />
+                depois de
+                <input type="number" min={2} max={52} className="field w-20 py-1" value={qtdSessoes}
+                  onChange={(e) => { setTerminar("sessoes"); setQtdSessoes(Math.max(1, Math.min(52, Number(e.target.value) || 1))); }} />
+                sessões
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <input type="radio" name="terminar" checked={terminar === "data"} onChange={() => setTerminar("data")} />
+                na data
+                <input type="date" className="field py-1" value={ateData} min={data}
+                  onChange={(e) => { setTerminar("data"); setAteData(e.target.value); }} />
+              </label>
+            </div>
+            {saldoInfo && (
+              <p className="mt-1 text-xs font-semibold text-moss">
+                {saldoInfo.nome}: {saldoInfo.saldo} {saldoInfo.saldo === 1 ? "sessão restante" : "sessões restantes"}.
+              </p>
+            )}
+          </div>
+
+          <p className="rounded-lg bg-paper px-3 py-2 text-xs text-ink/70">
+            {resumoSerie(datasSerie, diasSemana, repetir, hora)}
           </p>
         </div>
       )}
@@ -908,20 +968,43 @@ function BloquearHorario({ clinicId, dia, professionals, atendimentos, onClose, 
 
 /* ── Datas de uma série (horário fixo) ──────────────────────── */
 
-function calcularDatas(data: string, hora: string, repetir: "nao" | "semanal" | "quinzenal", ateData: string): Date[] {
+const NOMES_DIA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const NOMES_DIA_LONGO = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+
+function calcularDatas(
+  data: string, hora: string, repetir: "nao" | "semanal" | "quinzenal",
+  opt: { ateData: string; dias: number[]; terminar: "sessoes" | "data"; qtd: number },
+): Date[] {
   const inicio = new Date(`${data}T${hora}:00`);
   if (Number.isNaN(inicio.getTime())) return [];
   if (repetir === "nao") return [inicio];
-  const passo = repetir === "quinzenal" ? 14 : 7;
-  const limite = new Date(`${ateData}T23:59:59`);
+  const dias = opt.dias.length ? opt.dias : [inicio.getDay()];
+  const maximo = opt.terminar === "sessoes" ? Math.max(1, Math.min(52, opt.qtd)) : 52;
+  const limite = opt.terminar === "data" ? new Date(`${opt.ateData}T23:59:59`) : null;
+  const semana0 = inicioSemana(inicio).getTime();
   const datas: Date[] = [];
-  for (let k = 0; datas.length < 52; k++) {
+  for (let k = 0; k < 800 && datas.length < maximo; k++) {
     const d = new Date(inicio);
-    d.setDate(d.getDate() + k * passo);
-    if (d > limite) break;
+    d.setDate(d.getDate() + k);
+    if (limite && d > limite) break;
+    if (!dias.includes(d.getDay())) continue;
+    if (repetir === "quinzenal") {
+      const semanas = Math.round((inicioSemana(d).getTime() - semana0) / (7 * 86400000));
+      if (semanas % 2 !== 0) continue;
+    }
     datas.push(d);
   }
   return datas;
+}
+
+function resumoSerie(datas: Date[], dias: number[], repetir: "nao" | "semanal" | "quinzenal", hora: string) {
+  if (datas.length === 0) return "Nenhuma sessão nesse período.";
+  const ordem = [1, 2, 3, 4, 5, 6, 0].filter((d) => dias.includes(d)).map((d) => NOMES_DIA_LONGO[d]);
+  const lista = ordem.length > 1 ? `${ordem.slice(0, -1).join(", ")} e ${ordem[ordem.length - 1]}` : ordem[0];
+  const freq = repetir === "quinzenal" ? "a cada 2 semanas" : "toda semana";
+  const ini = datas[0].toLocaleDateString("pt-BR");
+  const fim = datas[datas.length - 1].toLocaleDateString("pt-BR");
+  return `${datas.length} ${datas.length === 1 ? "sessão" : "sessões"}, ${freq} na ${lista} às ${hora}, de ${ini} até ${fim}.`;
 }
 
 /* ── Visão semanal ──────────────────────────────────────────── */
