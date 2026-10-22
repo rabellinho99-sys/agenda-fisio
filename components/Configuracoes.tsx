@@ -12,6 +12,8 @@ type BookingSettings = {
   min_advance_hours?: number;
   slot_interval_minutes?: number;
   allow_patient_cancel_hours?: number;
+  notify_pro_confirm?: boolean;
+  notify_pro_cancel?: boolean;
 };
 type Clinic = { id: string; name: string; logo_url: string | null; brand_color: string | null; booking_settings: BookingSettings | null };
 
@@ -29,6 +31,25 @@ export function Configuracoes({ clinic }: { clinic: Clinic }) {
   const [autoConfirm, setAutoConfirm] = useState(clinic.booking_settings?.auto_confirm ?? true);
   const [salvandoConfirmacao, setSalvandoConfirmacao] = useState(false);
   const [msgConfirmacao, setMsgConfirmacao] = useState<string | null>(null);
+
+  // cópia local das configurações, para um ajuste não apagar o outro
+  const [config, setConfig] = useState<BookingSettings>(clinic.booking_settings ?? {});
+  const [salvandoAviso, setSalvandoAviso] = useState(false);
+  const [msgAviso, setMsgAviso] = useState<string | null>(null);
+  const avisoConfirmar = config.notify_pro_confirm ?? true;
+  const avisoCancelar = config.notify_pro_cancel ?? true;
+
+  async function salvarAviso(chave: "notify_pro_confirm" | "notify_pro_cancel", valor: boolean) {
+    setSalvandoAviso(true);
+    setMsgAviso(null);
+    const novasConfig = { ...config, [chave]: valor };
+    const { error } = await supabase.from("clinics").update({ booking_settings: novasConfig }).eq("id", clinic.id);
+    setSalvandoAviso(false);
+    if (error) { setMsgAviso(error.message); return; }
+    setConfig(novasConfig);
+    setMsgAviso("Salvo.");
+    router.refresh();
+  }
 
   function clicarUpload() {
     inputRef.current?.click();
@@ -85,10 +106,11 @@ export function Configuracoes({ clinic }: { clinic: Clinic }) {
   async function salvarConfirmacao(valor: boolean) {
     setSalvandoConfirmacao(true);
     setMsgConfirmacao(null);
-    const novasConfig = { ...(clinic.booking_settings ?? {}), auto_confirm: valor };
+    const novasConfig = { ...config, auto_confirm: valor };
     const { error } = await supabase.from("clinics").update({ booking_settings: novasConfig }).eq("id", clinic.id);
     setSalvandoConfirmacao(false);
     if (error) { setMsgConfirmacao(error.message); return; }
+    setConfig(novasConfig);
     setAutoConfirm(valor);
     setMsgConfirmacao("Salvo.");
     router.refresh();
@@ -169,6 +191,37 @@ export function Configuracoes({ clinic }: { clinic: Clinic }) {
         </div>
 
         {msgConfirmacao && <p className="mt-3 text-sm text-ink/60">{msgConfirmacao}</p>}
+      </div>
+
+      <div className="mt-6 rounded-xl bg-white p-6">
+        <p className="font-bold">Avisos para o profissional</p>
+        <p className="mt-1 text-sm text-ink/60">
+          Quando o paciente responde à confirmação (pelo link ou pelo WhatsApp), o profissional do atendimento recebe um aviso no WhatsApp e no e-mail.
+        </p>
+
+        <div className="mt-4 space-y-2">
+          <label className="flex items-start gap-3 rounded-lg border border-mist p-3 cursor-pointer has-[:checked]:border-moss has-[:checked]:bg-moss/5">
+            <input type="checkbox" className="mt-1 size-4" checked={avisoConfirmar} disabled={salvandoAviso}
+              onChange={(e) => salvarAviso("notify_pro_confirm", e.target.checked)} />
+            <span>
+              <span className="block font-semibold">Avisar quando o paciente confirmar presença</span>
+              <span className="block text-sm text-ink/60">Útil para quem atende em domicílio e quer saber antes de sair.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 rounded-lg border border-mist p-3 cursor-pointer has-[:checked]:border-moss has-[:checked]:bg-moss/5">
+            <input type="checkbox" className="mt-1 size-4" checked={avisoCancelar} disabled={salvandoAviso}
+              onChange={(e) => salvarAviso("notify_pro_cancel", e.target.checked)} />
+            <span>
+              <span className="block font-semibold">Avisar quando o paciente cancelar</span>
+              <span className="block text-sm text-ink/60">O horário é liberado na agenda e você fica sabendo na hora.</span>
+            </span>
+          </label>
+        </div>
+        <p className="mt-3 text-xs text-ink/50">
+          O aviso vai para o telefone e o e-mail cadastrados em Profissionais. Se estiverem em branco, usa os dados da clínica.
+        </p>
+
+        {msgAviso && <p className="mt-3 text-sm text-ink/60">{msgAviso}</p>}
       </div>
     </div>
   );

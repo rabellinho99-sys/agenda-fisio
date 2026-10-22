@@ -17,6 +17,29 @@ type Pendente = {
 
 type Recusado = { id: string; nome: string; telefone: string | null; quando: string };
 
+type Aviso = {
+  id: string;
+  kind: "patient_confirmed" | "patient_cancelled";
+  patient_name: string | null;
+  service_name: string | null;
+  professional_name: string | null;
+  starts_at: string | null;
+  session_label: string | null;
+  created_at: string;
+  read_at: string | null;
+  clinic_tz: string;
+};
+
+function haQuanto(iso: string) {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `há ${h} h`;
+  const d = Math.round(h / 24);
+  return d === 1 ? "ontem" : `há ${d} dias`;
+}
+
 const INTERVALO_MS = 60_000;
 
 function fmt(iso: string, tz: string) {
@@ -62,7 +85,10 @@ export default function SinoPendentes() {
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [recusados, setRecusados] = useState<Recusado[]>([]);
+  const [avisos, setAvisos] = useState<Aviso[]>([]);
+  const [destacados, setDestacados] = useState<Set<string>>(new Set());
   const anterior = useRef<number | null>(null);
+  const avisosVistos = useRef<Set<string> | null>(null);
   const tituloBase = useRef<string>("");
   const caixa = useRef<HTMLDivElement>(null);
   const botaoRef = useRef<HTMLButtonElement>(null);
@@ -101,6 +127,26 @@ export default function SinoPendentes() {
       }
     }
     anterior.current = novos.length;
+
+    // Respostas dos pacientes (confirmou / cancelou)
+    const { data: av } = await supabase.rpc("list_app_notices");
+    const listaAv = (av ?? []) as Aviso[];
+    setAvisos(listaAv);
+    const naoLidos = listaAv.filter((a) => !a.read_at);
+    if (avisosVistos.current !== null) {
+      const chegaram = naoLidos.filter((a) => !avisosVistos.current!.has(a.id));
+      if (chegaram.length > 0) {
+        bip();
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          const a = chegaram[0];
+          new Notification(a.kind === "patient_confirmed" ? "Paciente confirmou presença" : "Paciente cancelou o atendimento", {
+            body: `${a.patient_name ?? "Paciente"}${a.starts_at ? `, ${fmt(a.starts_at, a.clinic_tz)}` : ""}`,
+            icon: "/icon-192.png",
+          });
+        }
+      }
+    }
+    avisosVistos.current = new Set(listaAv.map((a) => a.id));
   }, [supabase]);
 
   useEffect(() => {
@@ -115,10 +161,25 @@ export default function SinoPendentes() {
     };
   }, [carregar]);
 
+  const naoLidos = avisos.filter((a) => !a.read_at).length;
+
   useEffect(() => {
+    const total = lista.length + naoLidos;
     const base = tituloBase.current || document.title.replace(/^\(\d+\)\s*/, "");
-    document.title = lista.length > 0 ? `(${lista.length}) ${base}` : base;
-  }, [lista.length]);
+    document.title = total > 0 ? `(${total}) ${base}` : base;
+  }, [lista.length, naoLidos]);
+
+  // Ao abrir o sino, as respostas novas ficam destacadas e passam a contar como lidas
+  useEffect(() => {
+    if (!aberto) return;
+    const novos = avisos.filter((a) => !a.read_at).map((a) => a.id);
+    if (novos.length === 0) return;
+    setDestacados(new Set(novos));
+    supabase.rpc("mark_app_notices_read").then(() => {
+      const agora = new Date().toISOString();
+      setAvisos((l) => l.map((a) => (a.read_at ? a : { ...a, read_at: agora })));
+    });
+  }, [aberto]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!aberto) return;
@@ -171,6 +232,7 @@ export default function SinoPendentes() {
   }
 
   const qtd = lista.length;
+  const totalBadge = qtd + naoLidos;
   const podeAtivar = typeof window !== "undefined" && typeof Notification !== "undefined" && Notification.permission === "default";
 
   return (
@@ -179,10 +241,10 @@ export default function SinoPendentes() {
         ref={botaoRef}
         type="button"
         onClick={() => setAberto((v) => !v)}
-        aria-label={qtd > 0 ? `${qtd} agendamentos aguardando aprovação` : "Notificações"}
+        aria-label={totalBadge > 0 ? `${totalBadge} notificações` : "Notificações"}
         style={{
           position: "relative", width: 40, height: 40, borderRadius: 10, border: "1px solid #e2e8f0",
-          background: qtd > 0 ? "#fef3c7" : "#ffffff", cursor: "pointer", display: "inline-flex",
+          background: totalBadge > 0 ? "#fef3c7" : "#ffffff", cursor: "pointer", display: "inline-flex",
           alignItems: "center", justifyContent: "center",
         }}
       >
@@ -190,12 +252,12 @@ export default function SinoPendentes() {
           <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
           <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
         </svg>
-        {qtd > 0 && (
+        {totalBadge > 0 && (
           <span style={{
             position: "absolute", top: -6, right: -6, minWidth: 20, height: 20, padding: "0 5px", borderRadius: 999,
             background: "#dc2626", color: "#fff", fontSize: 11, fontWeight: 800, display: "flex",
             alignItems: "center", justifyContent: "center", border: "2px solid #fff",
-          }}>{qtd > 99 ? "99+" : qtd}</span>
+          }}>{totalBadge > 99 ? "99+" : totalBadge}</span>
         )}
       </button>
 
@@ -207,7 +269,7 @@ export default function SinoPendentes() {
           boxShadow: "0 12px 32px rgba(15,23,42,0.18)", zIndex: 1000, padding: 14,
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <strong style={{ fontSize: 15, color: "#0f172a" }}>Aguardando sua aprovação</strong>
+            <strong style={{ fontSize: 15, color: "#0f172a" }}>Notificações</strong>
             <button type="button" onClick={carregar} style={{ border: "none", background: "none", color: "#64748b", fontSize: 12, cursor: "pointer" }}>Atualizar</button>
           </div>
 
@@ -215,13 +277,14 @@ export default function SinoPendentes() {
             <button type="button" onClick={ativarAlertas} style={{
               width: "100%", marginBottom: 10, padding: "8px 10px", borderRadius: 8, border: "1px dashed #94a3b8",
               background: "#f8fafc", color: "#334155", fontSize: 12, cursor: "pointer",
-            }}>Ativar alerta no navegador para novos agendamentos</button>
+            }}>Ativar alerta no navegador para agendamentos e respostas dos pacientes</button>
           )}
 
           {erro && <p style={{ margin: "0 0 10px", color: "#b91c1c", fontSize: 13 }}>{erro}</p>}
 
+          <p style={{ margin: "4px 0 8px", color: "#64748b", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>AGUARDANDO SUA APROVAÇÃO</p>
           {qtd === 0 && recusados.length === 0 && (
-            <p style={{ margin: "8px 0", color: "#64748b", fontSize: 13 }}>Nenhum agendamento pendente.</p>
+            <p style={{ margin: "0 0 12px", color: "#64748b", fontSize: 13 }}>Nenhum agendamento pendente.</p>
           )}
 
           {lista.map((p) => (
@@ -258,6 +321,38 @@ export default function SinoPendentes() {
                     color: "#fff", fontSize: 12, fontWeight: 700, textDecoration: "none",
                   }}>Avisar paciente pelo WhatsApp</a>
                 )}
+              </div>
+            );
+          })}
+
+          <p style={{ margin: "14px 0 8px", color: "#64748b", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>RESPOSTAS DOS PACIENTES</p>
+          {avisos.length === 0 && (
+            <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>Quando um paciente confirmar ou cancelar, aparece aqui.</p>
+          )}
+          {avisos.map((a) => {
+            const confirmou = a.kind === "patient_confirmed";
+            const novo = destacados.has(a.id) || !a.read_at;
+            return (
+              <div key={a.id} style={{
+                border: `1px solid ${confirmou ? "#bbf7d0" : "#fecaca"}`,
+                background: novo ? (confirmou ? "#f0fdf4" : "#fef2f2") : "#fff",
+                borderRadius: 10, padding: 12, marginBottom: 8,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+                  <span style={{ fontWeight: 800, fontSize: 13, color: confirmou ? "#166534" : "#991b1b" }}>
+                    {confirmou ? "✓ Paciente confirmou" : "✕ Paciente cancelou"}
+                    {novo && <span style={{ marginLeft: 6, fontSize: 10, background: confirmou ? "#16a34a" : "#dc2626", color: "#fff", borderRadius: 999, padding: "1px 6px" }}>NOVO</span>}
+                  </span>
+                  <span style={{ color: "#94a3b8", fontSize: 11, whiteSpace: "nowrap" }}>{haQuanto(a.created_at)}</span>
+                </div>
+                <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 14, marginTop: 4 }}>{a.patient_name ?? "Paciente"}</div>
+                {a.starts_at && <div style={{ color: "#334155", fontSize: 13, marginTop: 2 }}>{fmt(a.starts_at, a.clinic_tz)}</div>}
+                <div style={{ color: "#64748b", fontSize: 12, marginTop: 2 }}>
+                  {a.service_name ?? "Atendimento"}
+                  {a.session_label ? ` · ${a.session_label}` : ""}
+                  {a.professional_name ? ` · ${a.professional_name}` : ""}
+                </div>
+                {!confirmou && <div style={{ color: "#991b1b", fontSize: 12, marginTop: 4 }}>O horário foi liberado na agenda.</div>}
               </div>
             );
           })}
