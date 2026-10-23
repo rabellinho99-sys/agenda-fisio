@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Prontuario } from "@/components/Prontuario";
@@ -11,7 +12,7 @@ export default async function ProntuarioPage({ params, searchParams }: { params:
   const { data: member } = await supabase.from("clinic_members").select("clinic_id, role").eq("user_id", user!.id).limit(1).single();
   if (member!.role === "receptionist") return <p className="text-ink/70">O prontuário é restrito a profissionais.</p>;
 
-  const [{ data: patient }, { data: notes }, { data: appts }, { data: professionals }, { data: clinic }, { data: templates }, { data: anamneses }, { data: requests }, { data: consentTemplates }, { data: consents }, { data: consentRequests }, { data: catalogo }, { data: pacotes }, { data: servicos }, { data: imagens }] = await Promise.all([
+  const [{ data: patient }, { data: notes }, { data: appts }, { data: professionals }, { data: clinic }, { data: templates }, { data: anamneses }, { data: requests }, { data: consentTemplates }, { data: consents }, { data: consentRequests }, { data: catalogo }, { data: pacotes }, { data: servicos }, { data: imagens }, { data: recursos }] = await Promise.all([
     supabase.from("patients").select("*").eq("id", id).maybeSingle(),
     supabase.from("clinical_notes").select("*, professionals(display_name), appointments(starts_at, services(name))").eq("patient_id", id).order("created_at", { ascending: false }),
     supabase.from("appointments").select("id, starts_at, status, services(name)").eq("patient_id", id).order("starts_at", { ascending: false }).limit(20),
@@ -27,13 +28,22 @@ export default async function ProntuarioPage({ params, searchParams }: { params:
     supabase.from("patient_packages").select("id, package_name, service_id, sessions_total, sessions_used, price_cents, paid, payment_method, purchased_at, expires_at, cancelled_at").eq("patient_id", id).order("purchased_at", { ascending: false }),
     supabase.from("services").select("id, name").eq("clinic_id", member!.clinic_id).eq("active", true).order("name"),
     supabase.from("patient_images").select("id, storage_path, file_name, file_type, description, uploaded_at").eq("patient_id", id).order("uploaded_at", { ascending: false }),
+    supabase.rpc("clinic_features", { p_clinic: member!.clinic_id }),
   ]);
   if (!patient) notFound();
 
   const meu = professionals?.find((p) => p.user_id === user!.id)?.id ?? professionals?.[0]?.id ?? null;
+  const temPostural = !!(recursos as Record<string, unknown> | null)?.postural;
 
   return (
     <>
+      {temPostural && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-white p-3 text-sm">
+          <span className="font-semibold">Avaliação postural (SAPO)</span>
+          <span className="rounded bg-paper px-1.5 py-0.5 text-xs font-semibold">Em teste</span>
+          <Link href={`/painel/postural?paciente=${id}`} className="btn-primary ml-auto text-sm">Abrir avaliação postural</Link>
+        </div>
+      )}
       <Prontuario
         patient={patient}
         notes={(notes ?? []) as never}
