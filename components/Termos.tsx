@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Markdown } from "@/components/Assinar";
 
 type Tpl = { id: string; name: string; body_markdown: string; version: number };
-type Svc = { id: string; name: string; consent_template_id: string | null };
+type Svc = { id: string; name: string; consent_template_id: string | null; consent_on_booking: boolean | null };
 
 const MODELO_VAZIO = `## Termo de Consentimento Livre e Esclarecido (TCLE)
 
@@ -85,12 +85,22 @@ export function Termos({ clinicId, templates: inicial, services: svcInicial }: {
     const t = data as Tpl;
     setTemplates(sel.id ? templates.map((x) => (x.id === t.id ? t : x)) : [...templates, t]);
     setSel(t);
-    setMsg(sel.id ? `Salvo como versão ${t.version}. Termos já assinados guardam a versão antiga.` : "Modelo criado.");
+    setMsg(sel.id ? `Salvo como versão ${t.version}. Termos já assinados guardam a versão antiga e o paciente não precisa assinar de novo.` : "Modelo criado.");
   }
 
   async function vincular(svcId: string, tplId: string) {
     await supabase.from("services").update({ consent_template_id: tplId || null, requires_consent: !!tplId }).eq("id", svcId);
-    setServices(services.map((s) => (s.id === svcId ? { ...s, consent_template_id: tplId || null } : s)));
+    setServices(services.map((s) => (s.id === svcId ? { ...s, consent_template_id: tplId || null, consent_on_booking: tplId ? s.consent_on_booking : false } : s)));
+    if (!tplId) await supabase.from("services").update({ consent_on_booking: false }).eq("id", svcId);
+  }
+
+  async function pedirNoLink(svcId: string, valor: boolean) {
+    setServices(services.map((s) => (s.id === svcId ? { ...s, consent_on_booking: valor } : s)));
+    const { error } = await supabase.from("services").update({ consent_on_booking: valor }).eq("id", svcId);
+    if (error) {
+      setServices(services.map((s) => (s.id === svcId ? { ...s, consent_on_booking: !valor } : s)));
+      setMsg(error.message);
+    }
   }
 
   return (
@@ -112,7 +122,7 @@ export function Termos({ clinicId, templates: inicial, services: svcInicial }: {
 
         <div className="rounded-xl bg-white p-3">
           <p className="text-sm font-bold">Vínculo por serviço</p>
-          <p className="mb-2 text-xs text-ink/60">Qual termo cada procedimento exige.</p>
+          <p className="mb-2 text-xs text-ink/60">Qual termo cada procedimento usa. O termo só aparece no link de agendamento se você marcar a opção abaixo do serviço. Sem marcar, envie pelo prontuário do paciente quando quiser.</p>
           <div className="space-y-2">
             {services.map((s) => (
               <div key={s.id}>
@@ -121,6 +131,12 @@ export function Termos({ clinicId, templates: inicial, services: svcInicial }: {
                   <option value="">Nenhum</option>
                   {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
+                {s.consent_template_id && (
+                  <label className="mt-1 flex items-start gap-2 text-xs text-ink/80">
+                    <input type="checkbox" className="mt-0.5" checked={!!s.consent_on_booking} onChange={(e) => pedirNoLink(s.id, e.target.checked)} />
+                    <span>Pedir assinatura no link de agendamento (quem já assinou não assina de novo)</span>
+                  </label>
+                )}
               </div>
             ))}
           </div>

@@ -8,7 +8,7 @@ export default async function TermosPage() {
   const clinicId = member!.clinic_id as string;
   const [{ data: templates }, { data: services }] = await Promise.all([
     supabase.from("consent_templates").select("id, name, body_markdown, version").eq("clinic_id", clinicId).eq("active", true).order("created_at"),
-    supabase.from("services").select("id, name, consent_template_id").eq("clinic_id", clinicId).eq("active", true).order("name"),
+    supabase.from("services").select("id, name, consent_template_id, consent_on_booking").eq("clinic_id", clinicId).eq("active", true).order("name"),
   ]);
   return <Termos clinicId={clinicId} templates={templates ?? []} services={services ?? []} />;
 }
