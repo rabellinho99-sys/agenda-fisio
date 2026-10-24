@@ -7,7 +7,7 @@ import { brl } from "@/lib/format";
 
 type Appt = {
   id: string; starts_at: string; price_cents: number; discount_cents: number | null; status: string;
-  professional_id: string; professionals: { display_name: string } | null; services: { name: string } | null;
+  professional_id: string; patient_package_id?: string | null; professionals: { display_name: string } | null; services: { name: string } | null;
 };
 type PacoteVendido = {
   id: string; package_name: string; price_cents: number; payment_method: string | null; purchased_at: string;
@@ -24,9 +24,11 @@ const LABEL_CATEGORIA: Record<string, string> = {
 
 const vazio = { description: "", category: "outros", amount: "", paid_at: new Date().toISOString().slice(0, 10), notes: "" };
 
-export function Financeiro({ clinicId, mes, appointments, pacotesVendidos, expenses: inicial, professionals }: {
-  clinicId: string; mes: string; appointments: Appt[]; pacotesVendidos: PacoteVendido[]; expenses: Expense[]; professionals: Prof[];
+export function Financeiro({ clinicId, mes, appointments: todas, pacotesVendidos, expenses: inicial, professionals, contador = false }: {
+  clinicId: string; mes: string; appointments: Appt[]; pacotesVendidos: PacoteVendido[]; expenses: Expense[]; professionals: Prof[]; contador?: boolean;
 }) {
+  // Sessões de pacote já entram na receita no dia da venda do pacote; não somar de novo.
+  const appointments = todas.filter((a) => !a.patient_package_id);
   const supabase = createClient();
   const router = useRouter();
   const [expenses, setExpenses] = useState(inicial);
@@ -114,9 +116,16 @@ export function Financeiro({ clinicId, mes, appointments, pacotesVendidos, expen
           <h1 className="h-title text-3xl">Financeiro</h1>
           <p className="mt-1 text-ink/70 capitalize">{nomeMes}</p>
         </div>
-        <div className="flex items-center gap-1 rounded-lg bg-white p-1">
-          <button className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper" onClick={() => trocarMes(-1)}>← Anterior</button>
-          <button className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper" onClick={() => trocarMes(1)}>Próximo →</button>
+        <div className="flex flex-wrap items-center gap-2">
+          {contador && (
+            <a href={`/relatorio/contador?mes=${mes}`} target="_blank" className="btn-primary text-sm">
+              Relatório para o contador
+            </a>
+          )}
+          <div className="flex items-center gap-1 rounded-lg bg-white p-1">
+            <button className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper" onClick={() => trocarMes(-1)}>← Anterior</button>
+            <button className="rounded-md px-3 py-1.5 text-sm font-semibold hover:bg-paper" onClick={() => trocarMes(1)}>Próximo →</button>
+          </div>
         </div>
       </div>
 

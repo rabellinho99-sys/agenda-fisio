@@ -19,9 +19,9 @@ export default async function FinanceiroPage({ searchParams }: { searchParams: P
   if (member!.role === "receptionist") return <p className="text-ink/70">O financeiro é restrito a profissionais.</p>;
   const clinicId = member!.clinic_id as string;
 
-  const [{ data: appointments }, { data: pacotesVendidos }, { data: expenses }, { data: professionals }] = await Promise.all([
+  const [{ data: appointments }, { data: pacotesVendidos }, { data: expenses }, { data: professionals }, { data: clinica }] = await Promise.all([
     supabase.from("appointments")
-      .select("id, starts_at, price_cents, discount_cents, status, professional_id, professionals(display_name), services(name)")
+      .select("id, starts_at, price_cents, discount_cents, status, professional_id, patient_package_id, professionals(display_name), services(name)")
       .eq("clinic_id", clinicId).eq("status", "completed")
       .gte("starts_at", inicio).lt("starts_at", fim)
       .order("starts_at", { ascending: false }),
@@ -36,7 +36,9 @@ export default async function FinanceiroPage({ searchParams }: { searchParams: P
       .gte("paid_at", inicio.slice(0, 10)).lt("paid_at", fim.slice(0, 10))
       .order("paid_at", { ascending: false }),
     supabase.from("professionals").select("id, display_name").eq("clinic_id", clinicId).eq("active", true),
+    supabase.from("clinics").select("beta_features").eq("id", clinicId).single(),
   ]);
+  const contador = ((clinica?.beta_features ?? []) as string[]).includes("contador");
 
   return (
     <Financeiro
@@ -46,6 +48,7 @@ export default async function FinanceiroPage({ searchParams }: { searchParams: P
       pacotesVendidos={(pacotesVendidos ?? []) as never}
       expenses={expenses ?? []}
       professionals={professionals ?? []}
+      contador={contador}
     />
   );
 }
